@@ -68,6 +68,8 @@ install_dependencies() {
         print_info "시스템 의존성 설치 (관리자 권한 필요)..."
         sudo apt-get update
         sudo apt-get install -y \
+            build-essential \
+            cmake \
             libopencv-dev \
             libgl1-mesa-glx \
             libglib2.0-0 \
@@ -75,10 +77,24 @@ install_dependencies() {
             libxext6 \
             libxrender-dev \
             libgomp1
+        print_success "시스템 의존성 설치 완료"
     fi
     
-    # Python 의존성 설치
-    pip install -r requirements.txt
+    # Python 기본 의존성 설치
+    print_info "Python 기본 패키지 설치 중..."
+    pip install fastapi uvicorn python-multipart pydantic pydantic-settings python-dotenv loguru psutil
+    pip install numpy pillow opencv-python onnxruntime
+    print_success "Python 기본 의존성 설치 완료"
+    
+    # InsightFace 설치 시도 (선택적)
+    print_info "InsightFace 설치 시도 중..."
+    if pip install insightface 2>/dev/null; then
+        print_success "InsightFace 설치 성공!"
+    else
+        print_warning "InsightFace 설치 실패 - 더미 모드로 실행됩니다"
+        print_info "Python 3.9-3.11을 사용하면 InsightFace 설치가 더 안정적입니다"
+    fi
+    
     print_success "의존성 설치 완료"
 }
 
@@ -101,25 +117,22 @@ setup_config() {
 
 # InsightFace 모델 다운로드
 download_models() {
-    print_info "InsightFace 모델 다운로드 중..."
+    print_info "InsightFace 모델 다운로드 시도 중..."
     
     python3 -c "
-import insightface
 try:
+    import insightface
     app = insightface.app.FaceAnalysis(providers=['CPUExecutionProvider'])
     app.prepare(ctx_id=-1)
-    print('✅ 모델 다운로드 완료!')
+    print('✅ InsightFace 모델 다운로드 완료!')
+except ImportError:
+    print('⚠️ InsightFace가 설치되지 않음 - 더미 모드로 실행됩니다')
 except Exception as e:
-    print(f'❌ 모델 다운로드 실패: {e}')
-    exit(1)
+    print(f'⚠️ 모델 다운로드 실패: {e} - 더미 모드로 실행됩니다')
 "
     
-    if [ $? -eq 0 ]; then
-        print_success "모델 다운로드 완료"
-    else
-        print_error "모델 다운로드 실패"
-        exit 1
-    fi
+    # 모델 다운로드가 실패해도 계속 진행
+    print_info "모델 초기화 완료 (실패 시 더미 모드로 동작)"
 }
 
 # 서버 테스트
@@ -138,6 +151,10 @@ test_server() {
         print_success "서버 테스트 통과!"
         print_info "🌐 API 문서: http://localhost:8000/docs"
         print_info "🔍 헬스체크: http://localhost:8000/health"
+        
+        # 헬스체크 결과 표시
+        health_result=$(curl -s http://localhost:8000/health | python3 -m json.tool 2>/dev/null || echo "JSON 파싱 실패")
+        print_info "헬스체크 응답: $health_result"
     else
         print_error "서버 테스트 실패"
         print_info "로그를 확인하세요: tail -f logs/app.log"
