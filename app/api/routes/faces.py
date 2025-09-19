@@ -145,30 +145,26 @@ async def detect_faces(request: FaceDetectionRequest):
             analyzer = model_manager.get_face_analyzer()
             
             # 얼굴 감지 수행
-            faces = await analyzer.detect_faces(
-                image_data=request.image,
+            result = await analyzer.detect_faces(
+                image=request.image,
+                include_landmarks=request.include_landmarks,
+                include_attributes=request.include_attributes,
                 max_faces=request.max_faces
             )
             
             # 랜드마크 제거 (요청하지 않은 경우)
             if not request.include_landmarks:
-                for face in faces:
+                for face in result.get("faces", []):
                     face.pop("landmarks", None)
             
             # 속성 제거 (요청하지 않은 경우)
             if not request.include_attributes:
-                for face in faces:
+                for face in result.get("faces", []):
                     face.pop("age", None)
                     face.pop("gender", None)
                     face.pop("emotions", None)
             
             processing_time = time.time() - start_time
-            
-            # 응답 데이터 구성
-            result = {
-                "faces": faces,
-                "face_count": len(faces)
-            }
             
             response_data = FaceDetectionResponse(
                 success=True,
@@ -245,8 +241,9 @@ async def extract_embedding(request: EmbeddingExtractionRequest):
             
             # 임베딩 추출 수행
             result = await analyzer.extract_embedding(
-                image_data=request.image,
-                face_id=request.face_id
+                image=request.image,
+                face_id=request.face_id,
+                normalize=request.normalize if hasattr(request, 'normalize') else True
             )
             
             processing_time = time.time() - start_time

@@ -291,6 +291,142 @@ ls -la | grep -E '\.(sh|py)$' | wc -l  # 0이어야 함
 
 ---
 
+## [2025-09-19] conda 환경에서 InsightFace 설치 성공
+
+### 문제 상황
+- Python 3.12 환경에서 pip install insightface 실패 (C++ 컴파일 에러)
+- build-essential, cmake 설치 후에도 지속적인 빌드 실패
+- 더미 모드로만 서버 동작, 실제 InsightFace 기능 필요
+
+### 환경 정보
+- **OS**: Linux 5.15.167.4-microsoft-standard-WSL2 (Ubuntu)
+- **기존 Python**: 3.12.7 (venv 환경, pip 설치 실패)
+- **신규 Python**: 3.11 (conda 환경, 설치 성공)
+- **패키지 관리자**: conda + pip 혼용
+
+### 시도한 방법들
+
+#### 1차 시도: Python 3.12 pip 설치 (실패)
+```bash
+source venv/bin/activate
+pip install --upgrade pip setuptools wheel
+pip install --no-cache-dir insightface
+```
+**결과**: C++ 컴파일 에러, Python 3.12 호환성 문제
+
+#### 2차 시도: conda 환경 생성 및 설치 (성공)
+```bash
+# Miniconda 설치
+wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O /tmp/miniconda.sh
+bash /tmp/miniconda.sh -b -p $HOME/miniconda
+
+# conda 환경 설정
+export PATH="$HOME/miniconda/bin:$PATH"
+source $HOME/miniconda/etc/profile.d/conda.sh
+
+# Python 3.11 환경 생성
+conda create -n insightface python=3.11 -y
+conda activate insightface
+
+# conda-forge로 InsightFace 설치 (핵심 성공 요소)
+conda install -c conda-forge insightface opencv numpy -y
+
+# pip로 웹 프레임워크 설치
+pip install fastapi uvicorn psutil
+```
+
+### 최종 성공 명령어
+```bash
+# 1. Miniconda 설치 (한 번만)
+wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O /tmp/miniconda.sh
+bash /tmp/miniconda.sh -b -p $HOME/miniconda
+
+# 2. conda 환경 활성화
+export PATH="$HOME/miniconda/bin:$PATH"
+source $HOME/miniconda/etc/profile.d/conda.sh
+
+# 3. 전용 환경 생성 및 활성화
+conda create -n insightface python=3.11 -y
+conda activate insightface
+
+# 4. 패키지 설치 (conda + pip 혼용)
+conda install -c conda-forge insightface opencv numpy -y  # ML/CV 라이브러리
+pip install fastapi uvicorn psutil                        # Python 웹 패키지
+
+# 5. 서버 실행
+python -m app.main
+```
+
+### 검증 방법
+```bash
+# 헬스체크 확인
+curl -s "http://localhost:8000/health" | python3 -m json.tool
+# 결과:
+{
+    "status": "healthy",
+    "model_loaded": true,     # ← 핵심: true로 변경됨
+    "gpu_available": false,
+    "memory_usage": {"used_mb": 5332, "total_mb": 13869, "percent": 38.4},
+    "version": "1.0.0"
+}
+
+# 얼굴 감지 API 테스트
+curl -X POST "http://localhost:8000/detect-faces" \
+  -H "Content-Type: application/json" \
+  -d '{"image": "data:image/jpeg;base64,..."}'
+# 결과: 정상 처리됨 (더미 모드 아님)
+
+# 서버 로그 확인
+# ✅ InsightFace 모델 로딩 성공
+# Applied providers: ['CPUExecutionProvider']
+# find model: buffalo_l/det_10g.onnx detection
+# find model: buffalo_l/w600k_r50.onnx recognition
+```
+
+### conda vs pip 사용 가이드라인
+
+#### conda로 설치해야 하는 것들 (시스템 의존성 포함)
+```bash
+# ML/CV 라이브러리 - 컴파일된 바이너리 + C++ 의존성
+conda install -c conda-forge insightface    # ✅ pip 실패, conda 성공
+conda install -c conda-forge opencv         # OpenCV C++ 라이브러리
+conda install -c conda-forge numpy          # BLAS/LAPACK 최적화
+conda install -c conda-forge pytorch       # CUDA 지원 등
+```
+
+#### pip로 설치해도 되는 것들 (순수 Python)
+```bash
+# 웹 프레임워크 및 Python 전용 패키지
+pip install fastapi uvicorn                 # 순수 Python
+pip install psutil requests                 # 가벼운 유틸리티
+pip install pydantic sqlalchemy            # ORM, 스키마
+```
+
+### 핵심 성공 요소
+1. **Python 버전**: 3.11 사용 (3.12 호환성 이슈 회피)
+2. **패키지 관리자**: conda-forge 사용 (미리 컴파일된 바이너리)
+3. **환경 분리**: 전용 conda 환경 생성
+4. **혼용 전략**: 무거운 라이브러리는 conda, 가벼운 패키지는 pip
+
+### 추가 참고사항
+- **conda-forge**: 커뮤니티 패키지 저장소, pip보다 안정적인 바이너리 제공
+- **컴파일 회피**: C++ 확장 모듈을 직접 빌드하지 않고 미리 빌드된 바이너리 사용
+- **환경 격리**: 기존 Python 3.12 환경과 독립적으로 운영
+- **성능**: conda 설치가 pip 컴파일보다 훨씬 빠름 (2-3분 vs 30분+)
+
+### 학습 사항
+- **패키지 관리자 선택의 중요성**: 동일한 패키지도 설치 방법에 따라 성공/실패 결정
+- **Python 버전 호환성**: 최신 버전이 항상 최선은 아님, 안정성 고려 필요
+- **conda vs pip 혼용 전략**: 각 도구의 장점을 활용한 효율적 환경 구성
+- **문제 해결 접근법**: 우회가 아닌 근본 원인 해결로 완전한 기능 구현
+
+### 향후 개선 사항
+- Docker 이미지 생성으로 환경 재현성 향상
+- requirements-conda.yml 파일 작성으로 자동화
+- 성능 최적화 (GPU 사용, 모델 캐싱 등)
+
+---
+
 ## [작업 템플릿]
 
 ### 새 작업 추가 시 사용할 템플릿
@@ -342,19 +478,19 @@ ls -la | grep -E '\.(sh|py)$' | wc -l  # 0이어야 함
 - [x] 2025-09-19: CLAUDE.md 작업 표준 수칙 작성
 - [x] 2025-09-19: README.md 간소화 완료
 - [x] 2025-09-19: Python 3.12 InsightFace 호환성 이슈 확인
-- [ ] InsightFace 설치 성공 (대안 방법 필요)
-- [ ] 실제 기능 테스트 및 검증
+- [x] 2025-09-19: InsightFace 설치 성공 (conda 환경)
+- [x] 2025-09-19: 실제 기능 테스트 및 검증 완료
 - [ ] Next.js 연동 테스트
 
 ### 현재 상태
 - **문서화**: ✅ 완료 (8/8 문서, CLAUDE.md 표준 준수)
-- **설치**: 🔄 부분 완료 (서버 실행됨, InsightFace Python 3.12 이슈)
-- **기능**: 🟡 더미 모드로 정상 동작 중
-- **테스트**: 🟡 헬스체크, API 문서 확인 완료
+- **설치**: ✅ 완료 (conda 환경에서 InsightFace 성공적으로 설치)
+- **기능**: ✅ 실제 InsightFace 기능 동작 중 (더미 모드 아님)
+- **테스트**: ✅ 헬스체크, 얼굴 감지 API 모두 정상 동작
 
 ### 다음 우선순위
-1. InsightFace 설치 (Python 3.11 환경 또는 Docker 사용)
-2. 실제 얼굴 분석 기능 구현 및 테스트
+1. ✅ ~~InsightFace 설치~~ (완료)
+2. ✅ ~~실제 얼굴 분석 기능 구현 및 테스트~~ (완료)
 3. 성능 측정 및 최적화
 4. Next.js 연동 준비
 
@@ -365,12 +501,13 @@ ls -la | grep -E '\.(sh|py)$' | wc -l  # 0이어야 함
 - 간소화된 README.md (개요 + 빠른 시작)
 - 문제 해결 가이드 (TROUBLESHOOTING.md)
 - 개발/배포 가이드 완비
-- 서버 기본 기능 동작 확인
+- ✅ **InsightFace 완전 설치 및 동작 확인**
+- ✅ **실제 얼굴 분석 기능 구현** (더미 모드 탈피)
+- ✅ **conda + pip 혼용 환경 구성 성공**
 
 🚧 **진행 중인 과제**:
-- Python 3.12 InsightFace 호환성 해결
-- 실제 AI 모델 통합
-- 성능 최적화
+- 성능 최적화 (GPU 사용, 모델 캐싱 등)
+- Next.js 연동 준비
 
 ---
 

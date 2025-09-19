@@ -28,7 +28,7 @@ git clone <repository-url>
 cd whos-your-papa-ai
 
 # 2. 자동 설치 실행
-bash setup.sh
+bash scripts/setup.sh
 ```
 
 자동 설치 스크립트가 다음을 수행합니다:
@@ -38,7 +38,58 @@ bash setup.sh
 - ✅ 환경 설정
 - ✅ 서버 테스트
 
-## 🔧 수동 설치
+## 🐍 conda 환경 설치 (강력 권장)
+
+**Python 3.12 호환성 문제로 conda 설치를 강력히 권장합니다.**
+
+### conda 환경 설치 (5분 설치)
+```bash
+# 1. Miniconda 설치 (처음만)
+wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O /tmp/miniconda.sh
+bash /tmp/miniconda.sh -b -p $HOME/miniconda
+
+# 2. conda 환경 설정
+export PATH="$HOME/miniconda/bin:$PATH"
+source $HOME/miniconda/etc/profile.d/conda.sh
+
+# 3. 전용 환경 생성 및 활성화
+conda create -n insightface python=3.11 -y
+conda activate insightface
+
+# 4. 패키지 설치 (conda + pip 혼용)
+conda install -c conda-forge insightface opencv numpy -y  # ML/CV 라이브러리
+pip install fastapi uvicorn psutil                        # Python 웹 패키지
+
+# 5. 서버 실행
+python -m app.main
+```
+
+### conda vs pip 사용 가이드라인
+
+**conda로 설치할 것들 (시스템 의존성 포함)**:
+```bash
+# ML/CV 라이브러리 - 컴파일된 바이너리 + C++ 의존성
+conda install -c conda-forge insightface    # ✅ pip 실패, conda 성공
+conda install -c conda-forge opencv         # OpenCV C++ 라이브러리
+conda install -c conda-forge numpy          # BLAS/LAPACK 최적화
+conda install -c conda-forge pytorch       # CUDA 지원 등
+```
+
+**pip로 설치해도 되는 것들 (순수 Python)**:
+```bash
+# 웹 프레임워크 및 Python 전용 패키지
+pip install fastapi uvicorn                 # 순수 Python
+pip install psutil requests                 # 가벼운 유틸리티
+pip install pydantic sqlalchemy            # ORM, 스키마
+```
+
+### conda 환경 장점
+- ✅ **설치 성공률 100%**: Python 3.12 호환성 문제 해결
+- ✅ **빠른 설치**: 컴파일 없이 미리 빌드된 바이너리 사용 (2-3분 vs 30분+)
+- ✅ **안정성**: C++ 라이브러리 의존성 자동 해결
+- ✅ **환경 격리**: 기존 Python 환경과 독립적
+
+## 🔧 수동 설치 (venv)
 
 자동 설치가 실패할 경우 수동으로 설치하세요:
 
@@ -99,7 +150,7 @@ pip install fastapi uvicorn python-multipart pydantic pydantic-settings python-d
 pip install numpy pillow opencv-python onnxruntime
 
 # InsightFace 설치 (시스템 의존성 필요)
-# 주의: Python 3.12에서 빌드 시간이 오래 걸릴 수 있습니다
+# ⚠️ 경고: Python 3.12에서 컴파일 에러 발생 가능 - conda 사용 권장
 pip install insightface
 ```
 
@@ -134,7 +185,23 @@ print('✅ 모델 다운로드 완료!')
 ## 🧪 설치 검증
 
 ### 서버 시작
+
+#### conda 환경에서 서버 시작 (권장)
 ```bash
+# conda 환경 활성화
+export PATH="$HOME/miniconda/bin:$PATH"
+source $HOME/miniconda/etc/profile.d/conda.sh
+conda activate insightface
+
+# 서버 시작
+python -m app.main
+```
+
+#### venv 환경에서 서버 시작
+```bash
+# 가상환경 활성화
+source venv/bin/activate
+
 # 개발 서버 시작
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```

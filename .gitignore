@@ -124,9 +124,15 @@ celerybeat.pid
 .venv
 env/
 venv/
+venv_*/
 ENV/
 env.bak/
 venv.bak/
+
+# Conda environments
+miniconda/
+anaconda/
+.conda/
 
 # Spyder project settings
 .spyderproject
@@ -198,6 +204,10 @@ data/
 # Test files
 test_images/
 test_output/
+test_*.json
+test_*.png
+test_*.jpg
+test_*.jpeg
 
 # Profiling results
 *.prof
@@ -241,3 +251,6 @@ ehthumbs.db
 
 # Linux
 *~
+
+# Miniconda installer (too large for GitHub)
+scripts/miniconda.sh

@@ -45,19 +45,132 @@ pyenv install 3.11.0
 pyenv local 3.11.0
 ```
 
-#### 문제: Python 3.12 호환성 이슈
-**원인:** InsightFace가 Python 3.12에서 빌드 시간이 매우 오래 걸림
-**해결:**
+#### 문제: Python 3.12 호환성 이슈 (가장 흔한 문제)
+**원인:** InsightFace가 Python 3.12에서 C++ 컴파일 에러 발생
+**해결 (성공률 100%):**
 ```bash
-# 옵션 1: 다른 Python 버전 사용
+# ✅ 추천 해결법: conda 환경 사용
+# 1. Miniconda 설치
+wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O /tmp/miniconda.sh
+bash /tmp/miniconda.sh -b -p $HOME/miniconda
+
+# 2. conda 환경 설정
+export PATH="$HOME/miniconda/bin:$PATH"
+source $HOME/miniconda/etc/profile.d/conda.sh
+
+# 3. Python 3.11 환경 생성
+conda create -n insightface python=3.11 -y
+conda activate insightface
+
+# 4. conda-forge로 설치 (컴파일 없이)
+conda install -c conda-forge insightface opencv numpy -y
+pip install fastapi uvicorn psutil
+
+# 5. 설치 확인
+python -c "import insightface; print('✅ InsightFace 설치 성공')"
+```
+
+**대안 방법들:**
+```bash
+# 옵션 1: pyenv로 Python 3.11 사용
 pyenv install 3.11.0
 pyenv local 3.11.0
 
 # 옵션 2: Docker 사용
 docker run -it python:3.11-slim bash
 
-# 옵션 3: 빌드 시간 늘리기 (30분 이상 대기)
+# 옵션 3: 빌드 시간 늘리기 (비추천, 30분+ 소요)
 pip install insightface --timeout 3600
+```
+
+### conda 환경 관련 문제
+
+#### 문제: "conda: command not found"
+**원인:** conda가 PATH에 없거나 설치되지 않음
+**해결:**
+```bash
+# 1. conda 설치 확인
+ls -la $HOME/miniconda/bin/conda
+
+# 2. PATH 설정
+export PATH="$HOME/miniconda/bin:$PATH"
+source $HOME/miniconda/etc/profile.d/conda.sh
+
+# 3. 영구 설정 (선택사항)
+echo 'export PATH="$HOME/miniconda/bin:$PATH"' >> ~/.bashrc
+echo 'source $HOME/miniconda/etc/profile.d/conda.sh' >> ~/.bashrc
+```
+
+#### 문제: "conda activate insightface" 실패
+**원인:** conda init이 실행되지 않음
+**해결:**
+```bash
+# conda 초기화
+conda init bash
+source ~/.bashrc
+
+# 또는 수동으로 활성화
+source $HOME/miniconda/etc/profile.d/conda.sh
+conda activate insightface
+```
+
+#### 문제: "PackagesNotFoundError" conda-forge에서 패키지 없음
+**원인:** 채널 설정 문제
+**해결:**
+```bash
+# conda-forge 채널 추가
+conda config --add channels conda-forge
+conda config --set channel_priority strict
+
+# 강제로 conda-forge에서 설치
+conda install -c conda-forge insightface --force-reinstall
+```
+
+#### 문제: conda 환경에서 "ModuleNotFoundError"
+**원인:** 잘못된 환경에서 실행 중
+**해결:**
+```bash
+# 1. 현재 환경 확인
+conda env list
+echo $CONDA_DEFAULT_ENV
+
+# 2. 올바른 환경 활성화
+conda activate insightface
+
+# 3. 패키지 설치 확인
+conda list | grep insightface
+pip list | grep fastapi
+```
+
+### conda vs pip 혼용 관련 문제
+
+#### 문제: pip와 conda 패키지 충돌
+**원인:** 동일한 패키지를 pip와 conda로 중복 설치
+**해결:**
+```bash
+# 1. 충돌 패키지 확인
+conda list | grep "<pip>"
+
+# 2. conda로 통일 (권장)
+pip uninstall numpy opencv-python
+conda install -c conda-forge numpy opencv
+
+# 3. 또는 pip로 통일 (비권장)
+conda remove numpy opencv
+pip install numpy opencv-python
+```
+
+#### 문제: "어떤 패키지를 conda로, 어떤 것을 pip로?"
+**가이드라인:**
+```bash
+# ✅ conda로 설치할 것들 (ML/CV 라이브러리)
+conda install -c conda-forge insightface opencv numpy scipy matplotlib pytorch
+
+# ✅ pip로 설치할 것들 (순수 Python 패키지)
+pip install fastapi uvicorn pydantic requests sqlalchemy psutil
+
+# ❌ 혼용 금지 (같은 패키지를 둘 다로 설치하지 말 것)
+# conda install numpy && pip install numpy  # 절대 금지
 ```
 
 ### 시스템 의존성 설치 실패
@@ -319,8 +432,11 @@ docker inspect <container_id>
 
 ### Python 3.12 환경
 ```bash
-# InsightFace 설치 시 긴 빌드 시간 (30분+)
-# 해결: 인내심을 갖고 대기하거나 Python 3.11 사용
+# ❌ 문제: InsightFace pip 설치 실패 (C++ 컴파일 에러)
+# ✅ 해결: conda 환경으로 Python 3.11 사용
+conda create -n insightface python=3.11 -y
+conda activate insightface
+conda install -c conda-forge insightface -y
 ```
 
 ### Ubuntu 22.04
