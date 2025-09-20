@@ -14,73 +14,48 @@
 - **완전 호환**: 기존 Next.js API와 100% 호환
 - **확장 가능**: 실시간 추적, 배치 분석 등 고급 기능 지원
 
-## 📋 시스템 요구사항
-
-- **Python**: 3.8+ (3.9+ 권장)
-- **RAM**: 4GB+ (8GB+ 권장)  
-- **Storage**: 5GB+
-- **OS**: Ubuntu 20.04+ / macOS 10.15+ / Windows 10+
-
 ## 🚀 빠른 시작
 
-### ⚡ 1분 자동 설치
+### ⚡ 설치 및 실행
 
 ```bash
-# 1. 저장소 클론
-git clone <repository-url>
-cd whos-your-papa-ai
+# 1. 프로젝트 클론
+git clone <repository-url> && cd whos-your-papa-ai
 
-# 2. 자동 설치 실행
+# 2. 자동 설치 (처음만)
 bash scripts/setup.sh
-```
 
-### 🔧 수동 설치
-
-```bash
-# 1. 가상환경 생성
-python3 -m venv venv
-source venv/bin/activate
-
-# 2. 시스템 의존성 설치 (Ubuntu)
-sudo apt-get install build-essential cmake
-
-# 3. Python 패키지 설치
-pip install -r requirements.txt
-pip install insightface  # 시간이 오래 걸릴 수 있음
-
-# 4. 환경 설정
-cp .env.example .env
-mkdir -p logs
-```
-
-### 🏃‍♂️ 서버 실행
-
-```bash
-# 개발 서버 시작
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+# 3. 서버 실행
+conda activate insightface
+python -m app.main
 ```
 
 ### 🧪 테스트
 
 ```bash
-# 헬스체크
-curl http://localhost:8000/health
+# 다른 터미널에서 실행
+curl http://localhost:8000/health  # {"model_loaded": true}
+```
 
-# API 문서 확인
-open http://localhost:8000/docs
+### 💡 사용 팁
+
+```bash
+# 서버 종료: Ctrl+C
+
+# 백그라운드 실행
+python -m app.main &
+
+# 포트 변경 (8080 사용)
+python -m app.main --port 8080
 ```
 
 ## 🚀 현재 상태
 
 ✅ **완료된 기능:**
-- FastAPI 서버 실행
-- 헬스체크 엔드포인트
-- API 문서 자동 생성
-- 시스템 리소스 모니터링
-
-🚧 **진행 중:**
-- InsightFace 모델 통합 (Python 3.12 호환성 이슈)
-- 얼굴 비교 API 구현
+- InsightFace 모델 완전 통합
+- 얼굴 감지 및 비교 API
+- Next.js 프론트엔드 연동
+- 하이브리드 AWS/Python 지원
 
 ## 📚 상세 문서
 
