@@ -69,17 +69,24 @@ class FaceAnalyzer:
             # 첫 번째 얼굴로 비교 (가장 큰 얼굴)
             source_face = source_faces[0]
             
+            # 원본 얼굴 임베딩 정규화 (L2 norm)
+            source_embedding = source_face.embedding / np.linalg.norm(source_face.embedding)
+            
             # 각 대상 얼굴과 비교
             face_matches = []
+            unmatched_faces = []
             max_similarity = 0.0
             
             for target_face in target_faces:
-                # 코사인 유사도 계산
-                similarity = np.dot(source_face.embedding, target_face.embedding)
+                # 대상 얼굴 임베딩 정규화 (L2 norm)
+                target_embedding = target_face.embedding / np.linalg.norm(target_face.embedding)
+                
+                # 코사인 유사도 계산 (정규화된 벡터의 내적)
+                similarity = float(np.dot(source_embedding, target_embedding))
                 
                 if similarity >= threshold:
                     face_matches.append({
-                        "similarity": float(similarity),
+                        "similarity": similarity,
                         "bounding_box": {
                             "x": float(target_face.bbox[0]),
                             "y": float(target_face.bbox[1]),
@@ -89,14 +96,8 @@ class FaceAnalyzer:
                         "confidence": float(target_face.det_score),
                         "landmarks": target_face.landmark.tolist() if hasattr(target_face, 'landmark') else []
                     })
-                
-                max_similarity = max(max_similarity, similarity)
-            
-            # 매칭되지 않은 얼굴들
-            unmatched_faces = []
-            for i, target_face in enumerate(target_faces):
-                similarity = np.dot(source_face.embedding, target_face.embedding)
-                if similarity < threshold:
+                else:
+                    # 매칭되지 않은 얼굴로 분류
                     unmatched_faces.append({
                         "bounding_box": {
                             "x": float(target_face.bbox[0]),

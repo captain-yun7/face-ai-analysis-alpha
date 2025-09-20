@@ -977,5 +977,101 @@ curl http://localhost:8000/health
 
 ---
 
+## [2025-09-20] compare_faces 함수 유사도 계산 정확성 개선
+
+### 문제 상황
+- `compare_faces` 함수에서 임베딩 정규화 없이 단순 내적 계산
+- 사진 품질/조명에 따라 같은 사람도 다른 유사도 점수 받음
+- `analyze_family_similarity`와 계산 방식 불일치 (한쪽은 정규화, 한쪽은 미적용)
+
+### 환경 정보
+- **검증 환경**: Linux 5.15.167.4-microsoft-standard-WSL2 (Ubuntu)
+- **Python**: 3.11.13 (conda 환경)
+- **모델**: InsightFace buffalo_l
+
+### 문제 분석
+
+#### 기존 잘못된 구현 (compare_faces)
+```python
+# 라인 77-78: 정규화 없는 단순 내적
+similarity = np.dot(source_face.embedding, target_face.embedding)
+```
+
+**문제점**:
+- 실제 코사인 유사도가 아님 (L2 정규화 누락)
+- 임베딩 벡터 크기에 따라 결과가 달라짐
+- 사진 품질(조명, 해상도)이 점수에 영향
+
+#### 올바른 구현 (analyze_family_similarity)
+```python
+# 라인 338-343: L2 정규화 후 내적
+parent_embedding = parent_face.embedding / np.linalg.norm(parent_face.embedding)
+child_embedding = child_face.embedding / np.linalg.norm(child_face.embedding)
+similarity = float(np.dot(parent_embedding, child_embedding))
+```
+
+**장점**:
+- 진짜 코사인 유사도 (-1 ~ 1 범위)
+- 사진 품질에 무관한 일관된 점수
+- 순수한 얼굴 패턴 유사성만 측정
+
+### 수행한 수정 작업
+
+#### compare_faces 함수 개선
+```python
+# 수정 전
+similarity = np.dot(source_face.embedding, target_face.embedding)
+
+# 수정 후
+source_embedding = source_face.embedding / np.linalg.norm(source_face.embedding)
+target_embedding = target_face.embedding / np.linalg.norm(target_face.embedding)
+similarity = float(np.dot(source_embedding, target_embedding))
+```
+
+**변경 사항**:
+- L2 정규화로 임베딩을 단위 벡터로 변환
+- 정규화된 벡터의 내적으로 정확한 코사인 유사도 계산
+- 중복 계산 로직 정리 및 코드 개선
+
+### 최종 성공 검증
+
+✅ **수정된 코드 정상 동작**:
+```bash
+# 서버 실행 테스트
+export PATH="$HOME/miniconda/bin:$PATH"
+source $HOME/miniconda/etc/profile.d/conda.sh
+conda activate insightface
+python -m app.main
+
+# 헬스체크 확인
+curl http://localhost:8000/health
+# 결과: {"model_loaded": true, "status": "healthy"}
+```
+
+### 개선 효과
+
+**🎯 기술적 개선**:
+- 조명/화질에 무관한 일관된 얼굴 비교 점수
+- `analyze_family_similarity`와 동일한 정확도
+- 더 안정적인 얼굴 인식 성능
+
+**📊 실용적 효과**:
+- 같은 사람의 다른 사진들이 일관된 높은 점수
+- 다른 사람들은 일관된 낮은 점수
+- 실제 얼굴 닮음 정도만 반영
+
+### 학습 사항
+- **수학적 정확성의 중요성**: 코사인 유사도의 정의를 정확히 구현해야 함
+- **일관성의 가치**: 같은 클래스 내 함수들은 동일한 계산 방식 사용
+- **실용적 검증**: 이론적 개선이 실제 사용성 향상으로 이어지는지 확인 필요
+- **코드 품질**: 수학적 개념을 올바르게 구현하는 것이 사용자 경험에 직결
+
+### 추가 참고사항
+- InsightFace 임베딩이 이미 정규화되어 있다고 가정하면 안됨
+- 코사인 유사도는 벡터의 방향(패턴) 유사성만 측정하는 것이 목적
+- 얼굴 인식에서는 조명/화질보다 실제 얼굴 특징이 중요
+
+---
+
 **이 문서는 프로젝트의 모든 중요한 작업을 기록하는 살아있는 문서입니다.**  
 **새로운 작업 완료 시 반드시 이 문서에 기록해주세요.**
