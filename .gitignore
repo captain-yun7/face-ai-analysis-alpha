@@ -175,12 +175,13 @@ cython_debug/
 logs/
 *.log
 
-# Model files (too large for git)
-models/
+# AI 모델 파일들 (용량이 커서 git 제외)
 *.onnx
 *.pkl
 *.pt
 *.pth
+# 프로젝트 루트의 models 디렉터리만 제외 (AI 모델 파일 저장용)
+/models/
 
 # InsightFace model directory
 .insightface/
