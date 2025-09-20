@@ -353,35 +353,9 @@ class FaceAnalyzer:
                 age_factor = max(0.5, 1.0 - abs(parent_age - child_age) * 0.01)  # 단순 보정
                 age_adjusted_similarity = similarity * age_factor
             
-            # 가족 관계 예측 (임계값 기반 - 정규화된 값 기준)
-            normalized_sim_temp = max(0.0, min(1.0, (similarity + 1.0) / 2.0))
-            relationship_confidence = "높음" if normalized_sim_temp > 0.7 else "보통" if normalized_sim_temp > 0.5 else "낮음"
-            
-            # 유사도를 0-1 범위로 정규화 (코사인 유사도는 -1~1 범위)
-            normalized_similarity = max(0.0, (similarity + 1.0) / 2.0)
-            normalized_age_adjusted = max(0.0, (age_adjusted_similarity + 1.0) / 2.0)
-            
-            # 신뢰도 계산 (0-1 범위)
-            confidence_score = normalized_similarity
-            
             return {
-                "family_similarity": float(normalized_similarity),
-                "base_similarity": float(normalized_similarity),
-                "age_corrected_similarity": float(normalized_age_adjusted),
-                "feature_breakdown": {
-                    "eyes": float(min(1.0, max(0.0, normalized_similarity + 0.1))),
-                    "nose": float(min(1.0, max(0.0, normalized_similarity - 0.05))),
-                    "mouth": float(min(1.0, max(0.0, normalized_similarity + 0.05))),
-                    "jaw": float(min(1.0, max(0.0, normalized_similarity - 0.1))),
-                    "overall_structure": float(normalized_similarity)
-                },
-                "confidence": float(confidence_score),
-                "explanation": {
-                    "relationship_strength": relationship_confidence,
-                    "recommended_threshold": "0.4",
-                    "analysis_notes": f"기본 유사도: {normalized_similarity:.3f}, 나이 보정 유사도: {normalized_age_adjusted:.3f}"
-                },
-                "similarity_level": relationship_confidence,
+                "similarity": float(similarity),
+                "confidence": float(parent_face.det_score),
                 "parent_face": {
                     "bounding_box": {
                         "x": float(parent_face.bbox[0]),
