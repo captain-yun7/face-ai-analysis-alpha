@@ -336,6 +336,18 @@ class FaceAnalyzer:
             parent_face = parent_faces[0]
             child_face = child_faces[0]
             
+            # InsightFace에서 감지한 연령 정보 추출
+            detected_parent_age = int(parent_face.age) if hasattr(parent_face, 'age') else None
+            detected_child_age = int(child_face.age) if hasattr(child_face, 'age') else None
+            
+            # 파라미터로 받은 나이가 없으면 감지된 나이 사용
+            final_parent_age = parent_age or detected_parent_age
+            final_child_age = child_age or detected_child_age
+            
+            # 디버그 로그
+            logger.info(f"Detected ages - Parent: {detected_parent_age}, Child: {detected_child_age}")
+            logger.info(f"Final ages - Parent: {final_parent_age}, Child: {final_child_age}")
+            
             # 임베딩 정규화 (L2 norm)
             parent_embedding = parent_face.embedding / np.linalg.norm(parent_face.embedding)
             child_embedding = child_face.embedding / np.linalg.norm(child_face.embedding)
@@ -348,9 +360,9 @@ class FaceAnalyzer:
             
             # 나이 보정 (선택사항)
             age_adjusted_similarity = similarity
-            if parent_age and child_age:
+            if final_parent_age and final_child_age:
                 # 나이 차이에 따른 보정 (실제로는 더 복잡한 알고리즘 필요)
-                age_factor = max(0.5, 1.0 - abs(parent_age - child_age) * 0.01)  # 단순 보정
+                age_factor = max(0.5, 1.0 - abs(final_parent_age - final_child_age) * 0.01)  # 단순 보정
                 age_adjusted_similarity = similarity * age_factor
             
             return {
@@ -364,7 +376,7 @@ class FaceAnalyzer:
                         "height": float(parent_face.bbox[3] - parent_face.bbox[1])
                     },
                     "confidence": float(parent_face.det_score),
-                    "age": parent_age
+                    "age": detected_parent_age  # 실제 감지된 나이 반환
                 },
                 "child_face": {
                     "bounding_box": {
@@ -374,7 +386,7 @@ class FaceAnalyzer:
                         "height": float(child_face.bbox[3] - child_face.bbox[1])
                     },
                     "confidence": float(child_face.det_score),
-                    "age": child_age
+                    "age": detected_child_age  # 실제 감지된 나이 반환
                 }
             }
             
