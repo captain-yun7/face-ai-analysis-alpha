@@ -1200,5 +1200,93 @@ curl http://localhost:8000/health
 
 ---
 
+## [2025-09-22] setup.sh 완전 자동화 및 새로운 환경 설치 성공
+
+### 문제 상황
+- setup.sh 실행 시 conda Terms of Service 동의 문제로 설치 실패
+- pydantic-settings, loguru 등 필수 패키지 누락
+- conda activate가 스크립트 내에서 제대로 작동하지 않음
+- 새로운 환경에서 처음부터 설치 시 오류 발생
+
+### 환경 정보
+- **OS**: Linux 5.15.153.1-microsoft-standard-WSL2
+- **Python**: 3.11 (conda 환경)
+- **패키지 관리**: conda (conda-forge 채널) + pip
+
+### 시도한 방법들
+
+#### 1차 시도: 기존 setup.sh 실행 (실패)
+```bash
+bash scripts/setup.sh
+```
+**결과**: CondaToSNonInteractiveError - Terms of Service 미동의
+
+#### 2차 시도: conda 채널 설정 후 재실행 (실패)
+```bash
+conda config --remove channels defaults
+conda config --add channels conda-forge
+bash scripts/setup.sh
+```
+**결과**: 여전히 defaults 채널 참조 문제
+
+#### 3차 시도: setup.sh 수정 및 완전 자동화 (성공)
+```bash
+# setup.sh에 다음 내용 추가:
+# 1. --override-channels 옵션 추가
+# 2. 기존 환경 자동 삭제 후 재생성
+# 3. 모든 필수 패키지 conda로 설치
+# 4. 설치 검증 단계 추가
+```
+
+### 최종 성공 명령어
+```bash
+# setup.sh 핵심 변경사항
+conda create -n insightface python=3.11 -c conda-forge --override-channels -y
+conda install -c conda-forge --override-channels \
+    opencv numpy insightface onnxruntime \
+    pydantic-settings loguru -y
+```
+
+### 검증 방법
+```bash
+# 설치 완료 후 자동 검증
+✅ insightface 임포트 성공
+✅ OpenCV 임포트 성공
+✅ FastAPI 임포트 성공
+✅ Loguru 임포트 성공
+✅ Pydantic Settings 임포트 성공
+
+# 서버 실행 테스트
+python -m app.main
+curl http://localhost:8000/health
+# 결과: {"status":"healthy","model_loaded":true}
+```
+
+### 핵심 성공 요소
+1. **--override-channels 옵션**: conda-forge만 강제 사용
+2. **필수 패키지 포함**: pydantic-settings, loguru를 conda로 설치
+3. **환경 재생성**: 기존 환경 삭제 후 클린 설치
+4. **자동 검증**: 모든 패키지 import 테스트 포함
+
+### 최종 상태
+✅ **완전 자동화된 설치**:
+- 새로운 환경에서 `bash scripts/setup.sh` 하나로 완료
+- 사용자 개입 없이 모든 설치 진행
+- 설치 후 자동 검증으로 성공 확인
+- 서버 즉시 실행 가능
+
+### 학습 사항
+- **conda 채널 관리**: --override-channels로 채널 강제 지정 중요
+- **패키지 누락 방지**: requirements.txt와 별개로 conda 패키지 명시 필요
+- **자동화의 완성도**: 설치 검증까지 포함해야 진정한 자동화
+- **환경 재생성**: 문제 발생 시 기존 환경 삭제가 더 깨끗한 해결책
+
+### 추가 참고사항
+- 이제 어떤 새로운 Ubuntu/WSL 환경에서도 setup.sh 하나로 설치 완료
+- Miniconda가 없으면 자동 설치되도록 이미 구현됨
+- 모든 의존성이 conda-forge에서 미리 빌드된 바이너리로 설치됨
+
+---
+
 **이 문서는 프로젝트의 모든 중요한 작업을 기록하는 살아있는 문서입니다.**  
 **새로운 작업 완료 시 반드시 이 문서에 기록해주세요.**

@@ -25,6 +25,7 @@ bash scripts/setup.sh
 - ✅ Python 3.11 환경 생성
 - ✅ InsightFace + 모든 의존성 설치
 - ✅ 환경 설정
+- ✅ 설치 검증 (모든 패키지 import 테스트)
 
 ## 🔧 수동 설치
 
@@ -40,11 +41,13 @@ export PATH="$HOME/miniconda/bin:$PATH"
 source $HOME/miniconda/etc/profile.d/conda.sh
 
 # 3. 환경 생성 및 활성화
-conda create -n insightface python=3.11 -y
+conda create -n insightface python=3.11 -c conda-forge --override-channels -y
 conda activate insightface
 
 # 4. 패키지 설치
-conda install -c conda-forge insightface opencv numpy -y
+conda install -c conda-forge --override-channels \
+    opencv numpy insightface onnxruntime \
+    pydantic-settings loguru -y
 pip install -r requirements.txt
 
 # 5. 환경 설정
@@ -54,6 +57,9 @@ mkdir -p logs
 ## 🏃‍♂️ 서버 실행
 
 ```bash
+# conda 경로 설정 (필요한 경우)
+source $HOME/miniconda/etc/profile.d/conda.sh
+
 # 환경 활성화
 conda activate insightface
 
@@ -91,9 +97,20 @@ curl http://localhost:8000/health
 2. 인터넷 연결 확인
 3. 디스크 공간 3GB+ 확인
 
+**conda Terms of Service 에러 발생 시:**
+```bash
+# conda-forge 채널만 사용하도록 설정
+conda config --remove channels defaults
+conda config --add channels conda-forge
+```
+
 **서버 실행 실패 시:**
 1. conda 환경 활성화 확인: `conda activate insightface`
 2. 로그 확인: `tail -f logs/app.log`
+3. 필수 패키지 확인:
+   ```bash
+   python -c "import insightface, cv2, fastapi, loguru, pydantic_settings"
+   ```
 
 ## 📚 다음 단계
 
