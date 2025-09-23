@@ -14,7 +14,8 @@ from ...schemas.requests import (
     FaceDetectionRequest,
     EmbeddingExtractionRequest,
     BatchAnalysisRequest,
-    FamilySimilarityRequest
+    FamilySimilarityRequest,
+    FindMostSimilarParentRequest
 )
 from ...schemas.responses import (
     FaceComparisonResponse,
@@ -22,6 +23,7 @@ from ...schemas.responses import (
     EmbeddingResponse,
     BatchAnalysisResponse,
     FamilySimilarityResponse,
+    FindMostSimilarParentResponse,
     ResponseMetadata
 )
 from ...models.model_manager import model_manager
@@ -494,6 +496,93 @@ async def compare_family_faces(request: FamilySimilarityRequest):
         log_request(
             method="POST",
             url="/compare-family-faces",
+            status_code=500,
+            processing_time=processing_time
+        )
+        
+        raise HTTPException(status_code=500, detail=error_response)
+
+
+@router.post("/find-most-similar-parent", response_model=FindMostSimilarParentResponse)
+async def find_most_similar_parent(request: FindMostSimilarParentRequest):
+    """
+    여러 부모 중 가장 닮은 부모를 찾습니다.
+    
+    - **child_image**: 자녀 이미지 (Base64 인코딩)
+    - **parent_images**: 부모 후보 이미지들 (Base64 인코딩, 2-10개)
+    - **child_age**: 자녀 나이 (선택사항)
+    - **use_family_analysis**: 가족 특화 분석 사용 여부
+    """
+    start_time = time.time()
+    
+    try:
+        async with model_manager.request_context("find_most_similar_parent"):
+            # 얼굴 분석기 가져오기
+            analyzer = model_manager.get_face_analyzer()
+            
+            # 부모 찾기 분석 수행
+            result = await analyzer.find_most_similar_parent(
+                child_image=request.child_image,
+                parent_images=request.parent_images,
+                child_age=request.child_age,
+                use_family_analysis=request.use_family_analysis
+            )
+            
+            processing_time = time.time() - start_time
+            
+            # 응답 생성
+            response_data = FindMostSimilarParentResponse(
+                success=True,
+                data=result,
+                metadata=create_response_metadata(processing_time)
+            )
+            
+            # 로깅
+            log_request(
+                method="POST",
+                url="/find-most-similar-parent",
+                status_code=200,
+                processing_time=processing_time
+            )
+            
+            return response_data
+            
+    except ValueError as e:
+        # 클라이언트 오류 (잘못된 입력)
+        processing_time = time.time() - start_time
+        error_response = {
+            "success": False,
+            "error": {
+                "code": "INVALID_INPUT",
+                "message": str(e),
+                "details": {}
+            }
+        }
+        
+        log_request(
+            method="POST",
+            url="/find-most-similar-parent",
+            status_code=400,
+            processing_time=processing_time
+        )
+        
+        raise HTTPException(status_code=400, detail=error_response)
+        
+    except Exception as e:
+        # 서버 오류
+        processing_time = time.time() - start_time
+        error_response = {
+            "success": False,
+            "error": {
+                "code": "PROCESSING_ERROR",
+                "message": "부모 찾기 분석 처리 중 오류가 발생했습니다",
+                "details": {"original_error": str(e)}
+            }
+        }
+        
+        log_request(
+            method="POST",
+            url="/find-most-similar-parent",
             status_code=500,
             processing_time=processing_time
         )

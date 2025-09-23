@@ -139,6 +139,31 @@ class FamilySimilarityRequest(BaseModel):
         return ImageData(image=v).image
 
 
+class FindMostSimilarParentRequest(BaseModel):
+    """여러 부모 중 가장 닮은 부모 찾기 요청"""
+    child_image: str = Field(..., description="자녀 이미지 (Base64)")
+    parent_images: List[str] = Field(..., min_items=2, max_items=10, description="부모 후보 이미지들 (Base64)")
+    child_age: Optional[int] = Field(None, ge=0, le=120, description="자녀 나이 (선택사항)")
+    use_family_analysis: bool = Field(default=True, description="가족 특화 분석 사용 여부")
+    
+    @validator("child_image")
+    def validate_child_image(cls, v):
+        """자녀 이미지 유효성 검사"""
+        return ImageData(image=v).image
+    
+    @validator("parent_images")
+    def validate_parent_images(cls, v):
+        """부모 이미지들 유효성 검사"""
+        validated_images = []
+        for i, image in enumerate(v):
+            try:
+                validated_image = ImageData(image=image).image
+                validated_images.append(validated_image)
+            except ValueError as e:
+                raise ValueError(f"부모 이미지 {i+1}번이 올바르지 않습니다: {str(e)}")
+        return validated_images
+
+
 class ConfigUpdateRequest(BaseModel):
     """설정 업데이트 요청 (관리자용)"""
     use_gpu: Optional[bool] = None

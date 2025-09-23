@@ -206,3 +206,24 @@ class FamilySimilarityResponse(BaseResponse):
         confidence: float = Field(..., ge=0.0, le=1.0, description="분석 신뢰도")
         explanation: Dict[str, str] = Field(..., description="부위별 설명")
         similarity_level: str = Field(..., description="유사도 수준 분류")
+
+
+class ParentMatch(BaseModel):
+    """부모 매칭 결과"""
+    image_index: int = Field(..., description="부모 이미지 인덱스")
+    similarity: float = Field(..., ge=0.0, le=100.0, description="유사도 점수 (0-100)")
+    family_similarity: Optional[float] = Field(None, ge=0.0, le=100.0, description="가족 특화 유사도")
+    confidence: float = Field(..., ge=0.0, le=100.0, description="신뢰도")
+    feature_breakdown: Optional[Dict[str, float]] = Field(None, description="부위별 유사도 분석")
+    similarity_level: Optional[str] = Field(None, description="유사도 수준 분류")
+
+
+class FindMostSimilarParentResponse(BaseResponse):
+    """가장 닮은 부모 찾기 응답"""
+    data: Optional[Dict[str, Any]] = Field(None, description="부모 찾기 결과")
+    
+    class ParentFindingData(BaseModel):
+        matches: List[ParentMatch] = Field(..., description="모든 부모 매칭 결과 (유사도 순)")
+        best_match: Optional[ParentMatch] = Field(None, description="가장 닮은 부모")
+        child_face_info: Optional[Dict[str, Any]] = Field(None, description="자녀 얼굴 정보")
+        analysis_method: str = Field(..., description="분석 방법 (family_analysis 또는 basic_comparison)")

@@ -77,12 +77,13 @@ class FaceAnalyzer:
             unmatched_faces = []
             max_similarity = 0.0
             
-            for target_face in target_faces:
+            for i, target_face in enumerate(target_faces):
                 # 대상 얼굴 임베딩 정규화 (L2 norm)
                 target_embedding = target_face.embedding / np.linalg.norm(target_face.embedding)
                 
                 # 코사인 유사도 계산 (정규화된 벡터의 내적)
                 similarity = float(np.dot(source_embedding, target_embedding))
+                max_similarity = max(max_similarity, similarity)  # 최대 유사도 업데이트
                 
                 if similarity >= threshold:
                     face_matches.append({
@@ -94,7 +95,7 @@ class FaceAnalyzer:
                             "height": float(target_face.bbox[3] - target_face.bbox[1])
                         },
                         "confidence": float(target_face.det_score),
-                        "landmarks": target_face.landmark.tolist() if hasattr(target_face, 'landmark') else []
+                        "landmarks": target_face.landmark.tolist() if hasattr(target_face, 'landmark') and target_face.landmark is not None else []
                     })
                 else:
                     # 매칭되지 않은 얼굴로 분류
@@ -120,7 +121,7 @@ class FaceAnalyzer:
                         "height": float(source_face.bbox[3] - source_face.bbox[1])
                     },
                     "confidence": float(source_face.det_score),
-                    "landmarks": source_face.landmark.tolist() if hasattr(source_face, 'landmark') else []
+                    "landmarks": source_face.landmark.tolist() if hasattr(source_face, 'landmark') and source_face.landmark is not None else []
                 },
                 "target_faces": [
                     {
@@ -237,7 +238,7 @@ class FaceAnalyzer:
                     "height": float(face.bbox[3] - face.bbox[1])
                 },
                 "confidence": float(face.det_score),
-                "landmarks": face.landmark.tolist() if hasattr(face, 'landmark') else []
+                "landmarks": face.landmark.tolist() if hasattr(face, 'landmark') and face.landmark is not None else []
             }
             
         except Exception as e:
@@ -420,4 +421,221 @@ class FaceAnalyzer:
                 "recommended_threshold": 0.4,
                 "confidence_level": "보통"
             }
+        }
+    
+    async def find_most_similar_parent(
+        self, 
+        child_image: str, 
+        parent_images: List[str], 
+        child_age: Optional[int] = None,
+        use_family_analysis: bool = True
+    ) -> Dict[str, Any]:
+        """여러 부모 중 가장 닮은 부모 찾기 (개별 compare_faces 호출 방식)"""
+        
+        if not self.is_loaded:
+            return self._dummy_find_most_similar_parent(child_image, parent_images, child_age, use_family_analysis)
+        
+        try:
+            logger.info(f"부모 찾기 시작 - 자녀: 1명, 부모 후보: {len(parent_images)}명")
+            logger.info(f"가족 특화 분석 사용: {use_family_analysis}")
+            
+            matches = []
+            
+            # 각 부모 이미지와 개별적으로 비교
+            for i, parent_image in enumerate(parent_images):
+                try:
+                    logger.info(f"부모 {i+1}/{len(parent_images)} 비교 시작")
+                    
+                    if use_family_analysis:
+                        # 가족 특화 분석 사용
+                        from .family_similarity import family_analyzer
+                        
+                        # 자녀 얼굴 정보 추출
+                        child_img = self._decode_base64_image(child_image)
+                        child_faces = self.app.get(child_img)
+                        
+                        if not child_faces:
+                            logger.warning(f"부모 {i+1} 비교에서 자녀 얼굴 감지 실패")
+                            matches.append({
+                                "image_index": i,
+                                "similarity": 0.0,
+                                "family_similarity": 0.0,
+                                "confidence": 0.0,
+                                "feature_breakdown": {},
+                                "similarity_level": "자녀 얼굴 감지 실패"
+                            })
+                            continue
+                        
+                        # 부모 얼굴 정보 추출
+                        parent_img = self._decode_base64_image(parent_image)
+                        parent_faces = self.app.get(parent_img)
+                        
+                        if not parent_faces:
+                            logger.warning(f"부모 {i+1} 얼굴 감지 실패")
+                            matches.append({
+                                "image_index": i,
+                                "similarity": 0.0,
+                                "family_similarity": 0.0,
+                                "confidence": 0.0,
+                                "feature_breakdown": {},
+                                "similarity_level": "부모 얼굴 감지 실패"
+                            })
+                            continue
+                        
+                        # 가족 특화 분석 수행
+                        child_face = child_faces[0]
+                        parent_face = parent_faces[0]
+                        
+                        parent_face_data = {
+                            "bounding_box": {
+                                "x": float(parent_face.bbox[0]),
+                                "y": float(parent_face.bbox[1]),
+                                "width": float(parent_face.bbox[2] - parent_face.bbox[0]),
+                                "height": float(parent_face.bbox[3] - parent_face.bbox[1])
+                            },
+                            "confidence": float(parent_face.det_score),
+                            "age": int(parent_face.age) if hasattr(parent_face, 'age') else None,
+                            "embedding": parent_face.embedding,
+                            "landmarks": parent_face.landmark.tolist() if hasattr(parent_face, 'landmark') and parent_face.landmark is not None else []
+                        }
+                        
+                        child_face_data = {
+                            "bounding_box": {
+                                "x": float(child_face.bbox[0]),
+                                "y": float(child_face.bbox[1]),
+                                "width": float(child_face.bbox[2] - child_face.bbox[0]),
+                                "height": float(child_face.bbox[3] - child_face.bbox[1])
+                            },
+                            "confidence": float(child_face.det_score),
+                            "age": int(child_face.age) if hasattr(child_face, 'age') else child_age,
+                            "embedding": child_face.embedding,
+                            "landmarks": child_face.landmark.tolist() if hasattr(child_face, 'landmark') and child_face.landmark is not None else []
+                        }
+                        
+                        # 가족 유사도 계산
+                        family_result = family_analyzer.calculate_family_similarity(
+                            parent_face_data,
+                            child_face_data,
+                            parent_face_data["age"],
+                            child_face_data["age"]
+                        )
+                        
+                        # 결과를 백분율로 변환
+                        matches.append({
+                            "image_index": i,
+                            "similarity": float(family_result["base_similarity"] * 100),
+                            "family_similarity": float(family_result["family_similarity"] * 100),
+                            "confidence": float(family_result["confidence"] * 100),
+                            "feature_breakdown": {k: float(v * 100) for k, v in family_result["feature_breakdown"].items()},
+                            "similarity_level": family_result["similarity_level"]
+                        })
+                        
+                        logger.info(f"부모 {i+1} 가족 분석 완료 - 가족 유사도: {family_result['family_similarity'] * 100:.1f}%")
+                        
+                    else:
+                        # 기본 얼굴 비교 사용 (compare_faces 함수 활용)
+                        result = await self.compare_faces(child_image, parent_image, threshold=0.01)
+                        
+                        # 유사도가 있으면 추가
+                        similarity = result.get("similarity", 0.0) * 100
+                        confidence = result.get("confidence", 0.0) * 100
+                        
+                        matches.append({
+                            "image_index": i,
+                            "similarity": similarity,
+                            "family_similarity": None,
+                            "confidence": confidence,
+                            "feature_breakdown": None,
+                            "similarity_level": self._get_similarity_level(similarity)
+                        })
+                        
+                        logger.info(f"부모 {i+1} 기본 비교 완료 - 유사도: {similarity:.1f}%")
+                        
+                except Exception as e:
+                    logger.error(f"부모 {i+1} 비교 중 오류: {e}")
+                    matches.append({
+                        "image_index": i,
+                        "similarity": 0.0,
+                        "family_similarity": 0.0 if use_family_analysis else None,
+                        "confidence": 0.0,
+                        "feature_breakdown": {} if use_family_analysis else None,
+                        "similarity_level": "분석 실패"
+                    })
+            
+            # 유사도 기준으로 정렬
+            if use_family_analysis:
+                matches.sort(key=lambda x: x["family_similarity"], reverse=True)
+                sort_key = "family_similarity"
+            else:
+                matches.sort(key=lambda x: x["similarity"], reverse=True)
+                sort_key = "similarity"
+            
+            logger.info(f"부모 찾기 완료 - 총 {len(matches)}개 결과, 최고 {sort_key}: {matches[0][sort_key]:.1f}%" if matches else "부모 찾기 완료 - 결과 없음")
+            
+            return {
+                "matches": matches,
+                "best_match": matches[0] if matches else None,
+                "child_face_info": None,  # 개별 처리 방식에서는 공통 child_face_info 불필요
+                "analysis_method": "family_analysis" if use_family_analysis else "basic_comparison"
+            }
+                
+        except Exception as e:
+            logger.error(f"부모 찾기 분석 중 전체 오류: {e}")
+            raise RuntimeError(f"부모 찾기 분석 실패: {e}")
+    
+    def _get_similarity_level(self, similarity: float) -> str:
+        """유사도 수준 분류"""
+        if similarity > 80:
+            return "매우 높은 유사도"
+        elif similarity > 60:
+            return "높은 유사도"
+        elif similarity > 40:
+            return "보통 유사도"
+        elif similarity > 20:
+            return "낮은 유사도"
+        else:
+            return "매우 낮은 유사도"
+    
+    def _dummy_find_most_similar_parent(
+        self, 
+        child_image: str, 
+        parent_images: List[str], 
+        child_age: Optional[int],
+        use_family_analysis: bool
+    ) -> Dict[str, Any]:
+        """더미 부모 찾기 (InsightFace 없을 때)"""
+        import random
+        
+        matches = []
+        for i in range(len(parent_images)):
+            similarity = random.uniform(10, 90)
+            family_similarity = similarity * random.uniform(0.8, 1.2) if use_family_analysis else None
+            
+            matches.append({
+                "image_index": i,
+                "similarity": similarity,
+                "family_similarity": family_similarity,
+                "confidence": random.uniform(70, 95),
+                "feature_breakdown": {
+                    "eye_region": random.uniform(40, 90),
+                    "nose_shape": random.uniform(30, 85),
+                    "face_shape": random.uniform(35, 80),
+                    "mouth_region": random.uniform(25, 75)
+                } if use_family_analysis else None,
+                "similarity_level": self._get_similarity_level(similarity)
+            })
+        
+        # 유사도 기준으로 정렬
+        sort_key = "family_similarity" if use_family_analysis else "similarity"
+        matches.sort(key=lambda x: x[sort_key] or 0, reverse=True)
+        
+        return {
+            "matches": matches,
+            "best_match": matches[0] if matches else None,
+            "child_face_info": {
+                "bounding_box": {"x": 100, "y": 50, "width": 160, "height": 200},
+                "confidence": 0.92,
+                "age": child_age
+            } if use_family_analysis else None,
+            "analysis_method": "family_analysis" if use_family_analysis else "basic_comparison"
         }
