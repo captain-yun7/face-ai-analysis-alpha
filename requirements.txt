@@ -1,6 +1,12 @@
 # 핵심 웹 서버 의존성 (pip으로 설치)
 fastapi
 uvicorn
+gunicorn
 python-multipart
 pydantic
+pydantic-settings
 psutil
+loguru
+pillow
+numpy
+opencv-python

@@ -255,3 +255,10 @@ ehthumbs.db
 
 # Miniconda installer (too large for GitHub)
 scripts/miniconda.sh
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+terraform.tfvars

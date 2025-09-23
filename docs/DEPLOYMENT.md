@@ -1,23 +1,382 @@
-# 배포 가이드
+# Oracle Cloud 프리티어 배포 가이드
 
-> 프로덕션 환경으로 배포하기 위한 가이드입니다.
+> Oracle Cloud ARM A1 인스턴스와 Terraform + Ansible을 활용한 완전 무료 배포 전략
 
-## 📋 배포 준비
+## 🎯 프리티어 활용 최대화 전략
 
-### 배포 전 체크리스트
-- [ ] 모든 테스트 통과 확인
-- [ ] 성능 벤치마크 측정
-- [ ] 보안 검토 완료
-- [ ] 환경변수 설정 완료
-- [ ] 로그 및 모니터링 설정
-- [ ] 백업 및 롤백 계획 수립
+### Oracle Cloud Free Tier 리소스
+- **Compute**: ARM A1 4vCPU + 24GB RAM (Always Free)
+- **Storage**: 200GB Block Volume (Always Free)  
+- **Network**: 10TB/월 아웃바운드 트래픽
+- **Load Balancer**: 1개 (Always Free)
+- **Container Registry**: 500MB (Always Free)
 
-## 🐳 Docker 배포
+### 인프라 아키텍처
+```
+인터넷:443 → Oracle Load Balancer → ARM A1 인스턴스 (Nginx:443 → FastAPI:8000)
+```
 
-### 1. Dockerfile 최적화
+## 📂 프로젝트 구조
+
+```
+whos-your-papa-ai/
+├── terraform/              # 인프라 코드
+│   ├── provider.tf         # Oracle Cloud Provider
+│   ├── network.tf          # VCN, Subnet, Security
+│   ├── compute.tf          # ARM A1 인스턴스
+│   ├── variables.tf        # 변수 정의
+│   ├── outputs.tf          # 출력값
+│   └── terraform.tfvars.example
+├── ansible/                # 서버 설정 자동화
+│   ├── inventory/
+│   │   └── hosts.yml
+│   ├── playbooks/
+│   │   ├── 01-system-setup.yml
+│   │   ├── 02-docker-install.yml
+│   │   ├── 03-app-deploy.yml
+│   │   ├── 04-nginx-ssl.yml
+│   │   └── 05-monitoring.yml
+│   ├── roles/
+│   └── ansible.cfg
+├── docker/                 # 컨테이너 설정
+│   ├── Dockerfile.arm64    # ARM64 최적화
+│   ├── docker-compose.prod.yml
+│   └── nginx/
+│       ├── nginx.conf
+│       └── ssl/
+├── scripts/                # 배포 스크립트
+│   ├── deploy.sh           # 원클릭 배포
+│   ├── setup-arm64.sh      # ARM64 환경 설정
+│   ├── update.sh           # 무중단 업데이트
+│   └── rollback.sh         # 롤백
+└── .github/
+    └── workflows/
+        └── deploy.yml      # CI/CD 파이프라인
+```
+
+## 🚀 단계별 배포 가이드
+
+### Phase 1: Terraform 인프라 구성
+
+#### 1. Oracle Cloud 설정
+```bash
+# OCI CLI 설치 및 설정
+bash -c "$(curl -L https://raw.githubusercontent.com/oracle/oci-cli/master/scripts/install/install.sh)"
+oci setup config
+
+# Terraform 설치
+wget https://releases.hashicorp.com/terraform/1.5.0/terraform_1.5.0_linux_arm64.zip
+unzip terraform_1.5.0_linux_arm64.zip
+sudo mv terraform /usr/local/bin/
+```
+
+#### 2. Terraform 구성 파일 작성
+
+**terraform/provider.tf**
+```hcl
+terraform {
+  required_providers {
+    oci = {
+      source  = "oracle/oci"
+      version = "~> 5.0"
+    }
+  }
+}
+
+provider "oci" {
+  tenancy_ocid         = var.tenancy_ocid
+  user_ocid           = var.user_ocid
+  fingerprint         = var.fingerprint
+  private_key_path    = var.private_key_path
+  region              = var.region
+}
+```
+
+**terraform/variables.tf**
+```hcl
+variable "tenancy_ocid" {
+  description = "OCID of the tenancy"
+  type        = string
+}
+
+variable "user_ocid" {
+  description = "OCID of the user"
+  type        = string
+}
+
+variable "fingerprint" {
+  description = "Fingerprint of the public key"
+  type        = string
+}
+
+variable "private_key_path" {
+  description = "Path to the private key"
+  type        = string
+}
+
+variable "region" {
+  description = "Oracle Cloud region"
+  type        = string
+  default     = "ap-seoul-1"
+}
+
+variable "compartment_ocid" {
+  description = "OCID of the compartment"
+  type        = string
+}
+
+variable "ssh_public_key" {
+  description = "SSH public key for instance access"
+  type        = string
+}
+```
+
+**terraform/network.tf**
+```hcl
+# VCN 생성
+resource "oci_core_vcn" "face_api_vcn" {
+  compartment_id = var.compartment_ocid
+  cidr_blocks    = ["10.0.0.0/16"]
+  display_name   = "face-api-vcn"
+  dns_label      = "faceapi"
+}
+
+# 인터넷 게이트웨이
+resource "oci_core_internet_gateway" "face_api_igw" {
+  compartment_id = var.compartment_ocid
+  vcn_id         = oci_core_vcn.face_api_vcn.id
+  display_name   = "face-api-igw"
+}
+
+# 라우트 테이블
+resource "oci_core_route_table" "face_api_rt" {
+  compartment_id = var.compartment_ocid
+  vcn_id         = oci_core_vcn.face_api_vcn.id
+  display_name   = "face-api-rt"
+
+  route_rules {
+    destination       = "0.0.0.0/0"
+    network_entity_id = oci_core_internet_gateway.face_api_igw.id
+  }
+}
+
+# 서브넷
+resource "oci_core_subnet" "face_api_subnet" {
+  compartment_id    = var.compartment_ocid
+  vcn_id           = oci_core_vcn.face_api_vcn.id
+  cidr_block       = "10.0.1.0/24"
+  display_name     = "face-api-subnet"
+  dns_label        = "faceapisub"
+  route_table_id   = oci_core_route_table.face_api_rt.id
+}
+
+# 보안 그룹
+resource "oci_core_security_list" "face_api_sl" {
+  compartment_id = var.compartment_ocid
+  vcn_id         = oci_core_vcn.face_api_vcn.id
+  display_name   = "face-api-sl"
+
+  egress_security_rules {
+    destination = "0.0.0.0/0"
+    protocol    = "all"
+  }
+
+  ingress_security_rules {
+    source   = "0.0.0.0/0"
+    protocol = "6"
+    tcp_options {
+      min = 22
+      max = 22
+    }
+  }
+
+  ingress_security_rules {
+    source   = "0.0.0.0/0"
+    protocol = "6"
+    tcp_options {
+      min = 80
+      max = 80
+    }
+  }
+
+  ingress_security_rules {
+    source   = "0.0.0.0/0"
+    protocol = "6"
+    tcp_options {
+      min = 443
+      max = 443
+    }
+  }
+}
+```
+
+**terraform/compute.tf**
+```hcl
+# ARM A1 인스턴스
+resource "oci_core_instance" "face_api_instance" {
+  availability_domain = data.oci_identity_availability_domains.ads.availability_domains[0].name
+  compartment_id      = var.compartment_ocid
+  display_name        = "face-api-arm"
+  shape               = "VM.Standard.A1.Flex"
+
+  shape_config {
+    ocpus         = 4
+    memory_in_gbs = 24
+  }
+
+  create_vnic_details {
+    subnet_id        = oci_core_subnet.face_api_subnet.id
+    display_name     = "face-api-vnic"
+    assign_public_ip = true
+  }
+
+  source_details {
+    source_type = "image"
+    source_id   = data.oci_core_images.ubuntu_images.images[0].id
+  }
+
+  metadata = {
+    ssh_authorized_keys = var.ssh_public_key
+    user_data = base64encode(templatefile("${path.module}/cloud-init.yaml", {
+      ssh_public_key = var.ssh_public_key
+    }))
+  }
+}
+
+# 데이터 소스
+data "oci_identity_availability_domains" "ads" {
+  compartment_id = var.compartment_ocid
+}
+
+data "oci_core_images" "ubuntu_images" {
+  compartment_id           = var.compartment_ocid
+  operating_system         = "Canonical Ubuntu"
+  operating_system_version = "22.04"
+  shape                    = "VM.Standard.A1.Flex"
+  sort_by                  = "TIMECREATED"
+  sort_order               = "DESC"
+}
+```
+
+#### 3. 인프라 배포
+```bash
+cd terraform
+terraform init
+terraform plan
+terraform apply
+```
+
+### Phase 2: Ansible 서버 설정
+
+#### 1. Ansible 설치
+```bash
+sudo apt update
+sudo apt install -y ansible
+```
+
+#### 2. 플레이북 작성
+
+**ansible/playbooks/01-system-setup.yml**
+```yaml
+---
+- name: System Setup
+  hosts: face_api_servers
+  become: yes
+  tasks:
+    - name: Update system
+      apt:
+        update_cache: yes
+        upgrade: dist
+
+    - name: Install essential packages
+      apt:
+        name:
+          - curl
+          - wget
+          - git
+          - htop
+          - ufw
+          - fail2ban
+        state: present
+
+    - name: Configure firewall
+      ufw:
+        rule: allow
+        port: "{{ item }}"
+      loop:
+        - 22
+        - 80
+        - 443
+
+    - name: Enable firewall
+      ufw:
+        state: enabled
+```
+
+**ansible/playbooks/02-docker-install.yml**
+```yaml
+---
+- name: Install Docker
+  hosts: face_api_servers
+  become: yes
+  tasks:
+    - name: Install Docker dependencies
+      apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - gnupg
+          - lsb-release
+        state: present
+
+    - name: Add Docker GPG key
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+
+    - name: Add Docker repository
+      apt_repository:
+        repo: "deb [arch=arm64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+        state: present
+
+    - name: Install Docker
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-compose-plugin
+        state: present
+
+    - name: Start Docker service
+      systemd:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Add user to docker group
+      user:
+        name: ubuntu
+        groups: docker
+        append: yes
+```
+
+#### 3. 배포 실행
+```bash
+cd ansible
+ansible-playbook -i inventory/hosts.yml playbooks/01-system-setup.yml
+ansible-playbook -i inventory/hosts.yml playbooks/02-docker-install.yml
+```
+
+### Phase 3: Docker 컨테이너화
+
+#### 1. ARM64 최적화 Dockerfile
+
+**docker/Dockerfile.arm64**
 ```dockerfile
-# Multi-stage build로 이미지 크기 최적화
-FROM python:3.11-slim as builder
+# ARM64 최적화된 Multi-stage build
+FROM --platform=linux/arm64 python:3.11-slim as builder
 
 # 시스템 의존성 설치
 RUN apt-get update && apt-get install -y \
@@ -30,16 +389,20 @@ RUN apt-get update && apt-get install -y \
     libxext6 \
     libxrender-dev \
     libgomp1 \
+    pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+
+# ARM64 최적화된 패키지 설치
+RUN pip install --no-cache-dir \
+    --extra-index-url https://download.pytorch.org/whl/cpu \
+    -r requirements.txt
 
 # Runtime stage
-FROM python:3.11-slim as runtime
+FROM --platform=linux/arm64 python:3.11-slim as runtime
 
-# 런타임 의존성만 설치
 RUN apt-get update && apt-get install -y \
     libgl1-mesa-glx \
     libglib2.0-0 \
@@ -78,30 +441,36 @@ EXPOSE 8000
 CMD ["gunicorn", "app.main:app", "-w", "4", "-k", "uvicorn.workers.UvicornWorker", "-b", "0.0.0.0:8000"]
 ```
 
-### 2. Docker Compose 설정
+#### 2. 프로덕션 Docker Compose
+
+**docker/docker-compose.prod.yml**
 ```yaml
-# docker-compose.yml
 version: '3.8'
 
 services:
   face-api:
-    build: .
-    ports:
-      - "8000:8000"
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.arm64
+    container_name: face-api
+    restart: unless-stopped
     environment:
       - ENVIRONMENT=production
       - LOG_LEVEL=INFO
+      - USE_GPU=false
     volumes:
-      - ./logs:/app/logs
-    restart: unless-stopped
+      - ../logs:/app/logs
+      - /etc/localtime:/etc/localtime:ro
+    networks:
+      - face-api-network
     deploy:
       resources:
         limits:
+          memory: 8G
+          cpus: '3.0'
+        reservations:
           memory: 4G
           cpus: '2.0'
-        reservations:
-          memory: 2G
-          cpus: '1.0'
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
@@ -111,46 +480,28 @@ services:
 
   nginx:
     image: nginx:alpine
+    container_name: nginx-proxy
+    restart: unless-stopped
     ports:
       - "80:80"
       - "443:443"
     volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
-      - ./nginx/ssl:/etc/nginx/ssl
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
     depends_on:
       - face-api
-    restart: unless-stopped
+    networks:
+      - face-api-network
 
-  redis:
-    image: redis:alpine
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    restart: unless-stopped
-
-volumes:
-  redis_data:
+networks:
+  face-api-network:
+    driver: bridge
 ```
 
-### 3. 프로덕션 빌드 및 실행
-```bash
-# 이미지 빌드
-docker build -t face-api:latest .
+#### 3. Nginx 설정
 
-# 컨테이너 실행
-docker-compose up -d
-
-# 로그 확인
-docker-compose logs -f face-api
-
-# 상태 확인
-docker-compose ps
-```
-
-## ⚙️ Nginx 리버스 프록시
-
-### nginx.conf 설정
+**docker/nginx/nginx.conf**
 ```nginx
 events {
     worker_connections 1024;
@@ -164,9 +515,14 @@ http {
     # Rate limiting
     limit_req_zone $binary_remote_addr zone=api:10m rate=10r/s;
     
+    # 로그 포맷
+    log_format main '$remote_addr - $remote_user [$time_local] "$request" '
+                    '$status $body_bytes_sent "$http_referer" '
+                    '"$http_user_agent" "$http_x_forwarded_for"';
+
     server {
         listen 80;
-        server_name your-domain.com;
+        server_name _;
         
         # HTTP to HTTPS redirect
         return 301 https://$server_name$request_uri;
@@ -177,15 +533,17 @@ http {
         server_name your-domain.com;
 
         # SSL 설정
-        ssl_certificate /etc/nginx/ssl/cert.pem;
-        ssl_certificate_key /etc/nginx/ssl/key.pem;
+        ssl_certificate /etc/letsencrypt/live/your-domain.com/fullchain.pem;
+        ssl_certificate_key /etc/letsencrypt/live/your-domain.com/privkey.pem;
         ssl_protocols TLSv1.2 TLSv1.3;
         ssl_ciphers HIGH:!aNULL:!MD5;
+        ssl_prefer_server_ciphers on;
 
         # 보안 헤더
         add_header X-Frame-Options DENY;
         add_header X-Content-Type-Options nosniff;
         add_header X-XSS-Protection "1; mode=block";
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains";
 
         # 파일 업로드 크기 제한
         client_max_body_size 10M;
@@ -215,379 +573,182 @@ http {
 }
 ```
 
-## ☸️ Kubernetes 배포
+### Phase 4: 자동화 스크립트
 
-### 1. Deployment 설정
-```yaml
-# k8s/deployment.yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: face-api
-  labels:
-    app: face-api
-spec:
-  replicas: 3
-  selector:
-    matchLabels:
-      app: face-api
-  template:
-    metadata:
-      labels:
-        app: face-api
-    spec:
-      containers:
-      - name: face-api
-        image: face-api:latest
-        ports:
-        - containerPort: 8000
-        env:
-        - name: ENVIRONMENT
-          value: "production"
-        - name: LOG_LEVEL
-          value: "INFO"
-        resources:
-          requests:
-            memory: "2Gi"
-            cpu: "1000m"
-          limits:
-            memory: "4Gi"
-            cpu: "2000m"
-        livenessProbe:
-          httpGet:
-            path: /health
-            port: 8000
-          initialDelaySeconds: 60
-          periodSeconds: 30
-        readinessProbe:
-          httpGet:
-            path: /health
-            port: 8000
-          initialDelaySeconds: 10
-          periodSeconds: 5
-        volumeMounts:
-        - name: logs
-          mountPath: /app/logs
-      volumes:
-      - name: logs
-        emptyDir: {}
-```
+#### 1. 원클릭 배포 스크립트
 
-### 2. Service 설정
-```yaml
-# k8s/service.yaml
-apiVersion: v1
-kind: Service
-metadata:
-  name: face-api-service
-spec:
-  selector:
-    app: face-api
-  ports:
-  - protocol: TCP
-    port: 80
-    targetPort: 8000
-  type: LoadBalancer
-```
-
-### 3. ConfigMap 설정
-```yaml
-# k8s/configmap.yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: face-api-config
-data:
-  ENVIRONMENT: "production"
-  LOG_LEVEL: "INFO"
-  MAX_WORKERS: "4"
-```
-
-### 4. Secret 설정
-```yaml
-# k8s/secret.yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: face-api-secret
-type: Opaque
-data:
-  API_KEY: <base64-encoded-api-key>
-  DATABASE_URL: <base64-encoded-db-url>
-```
-
-### 5. 배포 실행
+**scripts/deploy.sh**
 ```bash
-# ConfigMap 및 Secret 적용
-kubectl apply -f k8s/configmap.yaml
-kubectl apply -f k8s/secret.yaml
+#!/bin/bash
+set -e
 
-# 애플리케이션 배포
-kubectl apply -f k8s/deployment.yaml
-kubectl apply -f k8s/service.yaml
+echo "🚀 Face API 배포 시작..."
 
-# 상태 확인
-kubectl get pods
-kubectl get services
-kubectl logs -f deployment/face-api
+# 환경 확인
+if [ ! -f "terraform.tfvars" ]; then
+    echo "❌ terraform.tfvars 파일이 필요합니다"
+    exit 1
+fi
+
+# 1. Terraform 인프라 배포
+echo "📦 인프라 배포 중..."
+cd terraform
+terraform init
+terraform apply -auto-approve
+cd ..
+
+# 2. Ansible 서버 설정
+echo "⚙️ 서버 설정 중..."
+cd ansible
+ansible-playbook -i inventory/hosts.yml playbooks/site.yml
+cd ..
+
+# 3. Docker 이미지 빌드 및 배포
+echo "🐳 애플리케이션 배포 중..."
+cd docker
+docker-compose -f docker-compose.prod.yml up -d --build
+cd ..
+
+# 4. SSL 인증서 발급
+echo "🔒 SSL 인증서 설정 중..."
+./scripts/setup-ssl.sh
+
+echo "✅ 배포 완료!"
+echo "🌐 https://your-domain.com 에서 확인하세요"
 ```
 
-## 🖥️ VM/서버 직접 배포
+#### 2. SSL 자동화 스크립트
 
-### 1. 시스템 준비
+**scripts/setup-ssl.sh**
 ```bash
-# Ubuntu 20.04+ 서버에서
-sudo apt-get update
-sudo apt-get install -y python3 python3-venv python3-pip git nginx
+#!/bin/bash
+set -e
 
-# 방화벽 설정
-sudo ufw allow 22
-sudo ufw allow 80
-sudo ufw allow 443
-sudo ufw enable
-```
+DOMAIN=${1:-your-domain.com}
+EMAIL=${2:-admin@$DOMAIN}
 
-### 2. 애플리케이션 설치
-```bash
-# 사용자 생성
-sudo adduser --system --group --home /opt/face-api face-api
+echo "🔒 SSL 인증서 설정 시작..."
 
-# 소스 코드 배포
-sudo git clone <repository-url> /opt/face-api/app
-sudo chown -R face-api:face-api /opt/face-api
+# Certbot 설치
+sudo apt update
+sudo apt install -y certbot
 
-# 가상환경 설정
-sudo -u face-api python3 -m venv /opt/face-api/venv
-sudo -u face-api /opt/face-api/venv/bin/pip install -r /opt/face-api/app/requirements.txt
-```
-
-### 3. Systemd 서비스 설정
-```ini
-# /etc/systemd/system/face-api.service
-[Unit]
-Description=Face API Service
-After=network.target
-
-[Service]
-Type=exec
-User=face-api
-Group=face-api
-WorkingDirectory=/opt/face-api/app
-Environment=PATH=/opt/face-api/venv/bin
-ExecStart=/opt/face-api/venv/bin/gunicorn app.main:app -w 4 -k uvicorn.workers.UvicornWorker -b 127.0.0.1:8000
-Restart=always
-RestartSec=5
-StandardOutput=journal
-StandardError=journal
-
-[Install]
-WantedBy=multi-user.target
-```
-
-### 4. 서비스 시작
-```bash
-# 서비스 등록 및 시작
-sudo systemctl daemon-reload
-sudo systemctl enable face-api
-sudo systemctl start face-api
-
-# 상태 확인
-sudo systemctl status face-api
-sudo journalctl -u face-api -f
-```
-
-## 📊 모니터링 설정
-
-### 1. Prometheus 메트릭
-```python
-# app/monitoring/metrics.py
-from prometheus_client import Counter, Histogram, Gauge, generate_latest
-
-REQUEST_COUNT = Counter('face_api_requests_total', 'Total requests', ['method', 'endpoint'])
-REQUEST_DURATION = Histogram('face_api_request_duration_seconds', 'Request duration')
-ACTIVE_CONNECTIONS = Gauge('face_api_active_connections', 'Active connections')
-
-# FastAPI에서 메트릭 엔드포인트 추가
-@app.get("/metrics")
-async def metrics():
-    return Response(generate_latest(), media_type="text/plain")
-```
-
-### 2. Grafana 대시보드
-```json
-{
-  "dashboard": {
-    "title": "Face API Monitoring",
-    "panels": [
-      {
-        "title": "Request Rate",
-        "type": "graph",
-        "targets": [
-          {
-            "expr": "rate(face_api_requests_total[5m])"
-          }
-        ]
-      },
-      {
-        "title": "Response Time",
-        "type": "graph",
-        "targets": [
-          {
-            "expr": "histogram_quantile(0.95, face_api_request_duration_seconds_bucket)"
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-### 3. 로그 수집 (ELK Stack)
-```yaml
-# docker-compose.monitoring.yml
-version: '3.8'
-
-services:
-  elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:7.14.0
-    environment:
-      - discovery.type=single-node
-    ports:
-      - "9200:9200"
-
-  logstash:
-    image: docker.elastic.co/logstash/logstash:7.14.0
-    volumes:
-      - ./logstash/pipeline:/usr/share/logstash/pipeline
-    ports:
-      - "5044:5044"
-
-  kibana:
-    image: docker.elastic.co/kibana/kibana:7.14.0
-    ports:
-      - "5601:5601"
-    environment:
-      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
-```
-
-## 🔒 보안 강화
-
-### 1. API 키 인증
-```python
-# app/core/security.py
-from fastapi import HTTPException, Security
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-
-security = HTTPBearer()
-
-async def verify_api_key(credentials: HTTPAuthorizationCredentials = Security(security)):
-    if credentials.credentials != os.getenv("API_KEY"):
-        raise HTTPException(status_code=401, detail="Invalid API key")
-    return credentials.credentials
-```
-
-### 2. Rate Limiting
-```python
-# app/middleware/rate_limit.py
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
-from slowapi.errors import RateLimitExceeded
-
-limiter = Limiter(key_func=get_remote_address)
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-
-@app.post("/compare-faces")
-@limiter.limit("10/minute")
-async def compare_faces(request: Request, ...):
-    pass
-```
-
-### 3. SSL/TLS 설정
-```bash
 # Let's Encrypt 인증서 발급
-sudo certbot --nginx -d your-domain.com
+sudo certbot certonly --standalone \
+    --email $EMAIL \
+    --agree-tos \
+    --no-eff-email \
+    -d $DOMAIN
 
 # 자동 갱신 설정
-sudo crontab -e
-0 12 * * * /usr/bin/certbot renew --quiet
+echo "0 12 * * * /usr/bin/certbot renew --quiet" | sudo crontab -
+
+# Nginx 재시작
+docker-compose -f docker/docker-compose.prod.yml restart nginx
+
+echo "✅ SSL 설정 완료!"
 ```
 
-## 📈 성능 최적화
+### Phase 5: CI/CD 파이프라인
 
-### 1. 애플리케이션 설정
-```python
-# app/core/config.py
-class ProductionConfig:
-    # Worker 프로세스 수
-    WORKERS = multiprocessing.cpu_count() * 2 + 1
-    
-    # 커넥션 풀 설정
-    MAX_CONNECTIONS = 100
-    
-    # 캐시 설정
-    CACHE_TTL = 3600  # 1시간
-    
-    # 로그 레벨
-    LOG_LEVEL = "INFO"
-```
-
-### 2. 데이터베이스 최적화
-```bash
-# Redis 설정 최적화
-echo "maxmemory 2gb" >> /etc/redis/redis.conf
-echo "maxmemory-policy allkeys-lru" >> /etc/redis/redis.conf
-```
-
-### 3. 시스템 튜닝
-```bash
-# 파일 디스크립터 제한 증가
-echo "* soft nofile 65535" >> /etc/security/limits.conf
-echo "* hard nofile 65535" >> /etc/security/limits.conf
-
-# 커널 파라미터 조정
-echo "net.core.somaxconn = 65535" >> /etc/sysctl.conf
-echo "net.ipv4.ip_local_port_range = 1024 65535" >> /etc/sysctl.conf
-```
-
-## 🔄 배포 자동화
-
-### 1. GitHub Actions CI/CD
+**.github/workflows/deploy.yml**
 ```yaml
-# .github/workflows/deploy.yml
-name: Deploy to Production
+name: Deploy to Oracle Cloud
 
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Build Docker image
-      run: docker build -t face-api:${{ github.sha }} .
-    
-    - name: Push to registry
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup OCI CLI
+      uses: oracle-actions/configure-oci-cli@v1.0
+      with:
+        user: ${{ secrets.OCI_USER_OCID }}
+        fingerprint: ${{ secrets.OCI_FINGERPRINT }}
+        tenancy: ${{ secrets.OCI_TENANCY_OCID }}
+        region: ${{ secrets.OCI_REGION }}
+        private-key: ${{ secrets.OCI_PRIVATE_KEY }}
+
+    - name: Build ARM64 image
       run: |
-        echo ${{ secrets.DOCKER_PASSWORD }} | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin
-        docker push face-api:${{ github.sha }}
-    
-    - name: Deploy to Kubernetes
+        docker buildx create --use
+        docker buildx build --platform linux/arm64 \
+          -f docker/Dockerfile.arm64 \
+          -t face-api:${{ github.sha }} .
+
+    - name: Deploy to instance
       run: |
-        kubectl set image deployment/face-api face-api=face-api:${{ github.sha }}
+        # SSH 배포 스크립트 실행
+        ssh -i ~/.ssh/oracle_key ubuntu@${{ secrets.INSTANCE_IP }} \
+          "cd whos-your-papa-ai && git pull && ./scripts/update.sh"
 ```
 
-### 2. 롤링 업데이트
-```bash
-# Kubernetes 롤링 업데이트
-kubectl set image deployment/face-api face-api=face-api:new-version
+## 📊 모니터링 및 로깅
 
-# 롤백
-kubectl rollout undo deployment/face-api
+### 1. 시스템 모니터링
+```bash
+# 시스템 리소스 모니터링
+htop
+
+# Docker 컨테이너 상태
+docker stats
+
+# 로그 확인
+docker-compose -f docker/docker-compose.prod.yml logs -f
+```
+
+### 2. 애플리케이션 로그
+```bash
+# 애플리케이션 로그
+tail -f logs/app.log
+
+# Nginx 로그
+sudo tail -f /var/log/nginx/access.log
+sudo tail -f /var/log/nginx/error.log
+```
+
+## 💰 비용 최적화
+
+### 프리티어 리소스 활용
+- **ARM A1 인스턴스**: 4vCPU, 24GB RAM (무료)
+- **블록 스토리지**: 200GB (무료)
+- **네트워크**: 10TB 아웃바운드 (무료)
+- **Load Balancer**: 1개 (무료)
+
+### 예상 비용: $0/월
+
+## 🔧 유지보수
+
+### 1. 정기 업데이트
+```bash
+# 시스템 업데이트
+sudo apt update && sudo apt upgrade -y
+
+# Docker 이미지 업데이트
+./scripts/update.sh
+```
+
+### 2. 백업
+```bash
+# 애플리케이션 백업
+tar -czf backup-$(date +%Y%m%d).tar.gz app/ logs/ docker/
+
+# 데이터베이스 백업 (필요시)
+# mysqldump 또는 pg_dump 사용
+```
+
+### 3. 롤백
+```bash
+# 이전 버전으로 롤백
+./scripts/rollback.sh
 ```
 
 ## 📋 배포 후 검증
@@ -597,17 +758,17 @@ kubectl rollout undo deployment/face-api
 # 1. 서비스 상태 확인
 curl https://your-domain.com/health
 
-# 2. 부하 테스트
-ab -n 1000 -c 10 https://your-domain.com/health
+# 2. SSL 인증서 확인
+openssl s_client -connect your-domain.com:443 -servername your-domain.com
 
-# 3. 로그 확인
-tail -f /var/log/face-api/app.log
+# 3. 부하 테스트
+ab -n 100 -c 10 https://your-domain.com/health
 
-# 4. 메트릭 확인
-curl https://your-domain.com/metrics
+# 4. 로그 확인
+docker-compose -f docker/docker-compose.prod.yml logs --tail=100
 
-# 5. 보안 스캔
-nmap -p 80,443 your-domain.com
+# 5. 리소스 사용량 확인
+docker stats
 ```
 
 ---

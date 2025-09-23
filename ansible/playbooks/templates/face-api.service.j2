@@ -1,0 +1,34 @@
+[Unit]
+Description=Face API Application
+Documentation=https://github.com/YOUR_USERNAME/whos-your-papa-ai
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory={{ app_dir }}
+ExecStart=/usr/bin/docker-compose -f {{ docker_compose_file }} up -d
+ExecStop=/usr/bin/docker-compose -f {{ docker_compose_file }} down
+ExecReload=/usr/bin/docker-compose -f {{ docker_compose_file }} restart
+TimeoutStartSec=300
+TimeoutStopSec=300
+User={{ app_user }}
+Group={{ app_user }}
+
+# Restart policy
+Restart=on-failure
+RestartSec=30s
+
+# Environment
+Environment=COMPOSE_PROJECT_NAME={{ app_name }}
+
+# Security
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths={{ app_dir }}
+
+[Install]
+WantedBy=multi-user.target
