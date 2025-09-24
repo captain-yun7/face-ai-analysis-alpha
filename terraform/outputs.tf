@@ -27,8 +27,3 @@ output "subnet_id" {
   description = "OCID of the subnet"
   value       = oci_core_subnet.face_api_subnet.id
 }
-
-output "volume_id" {
-  description = "OCID of the additional storage volume"
-  value       = oci_core_volume.face_api_volume.id
-}

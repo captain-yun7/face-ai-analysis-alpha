@@ -100,6 +100,17 @@ resource "oci_core_security_list" "face_api_sl" {
     description = "HTTPS access"
   }
 
+  # 인바운드 규칙 - API (8000)
+  ingress_security_rules {
+    source   = "0.0.0.0/0"
+    protocol = "6" # TCP
+    tcp_options {
+      min = 8000
+      max = 8000
+    }
+    description = "Face API access"
+  }
+
   # ICMP 규칙 (ping)
   ingress_security_rules {
     source   = "0.0.0.0/0"

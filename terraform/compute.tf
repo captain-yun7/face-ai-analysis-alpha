@@ -12,11 +12,6 @@ data "oci_core_images" "ubuntu_images" {
   sort_by                  = "TIMECREATED"
   sort_order               = "DESC"
 
-  filter {
-    name   = "display_name"
-    values = [".*aarch64.*"]
-    regex  = true
-  }
 }
 
 # ARM A1 인스턴스
@@ -27,8 +22,8 @@ resource "oci_core_instance" "face_api_instance" {
   shape               = "VM.Standard.A1.Flex"
 
   shape_config {
-    ocpus         = 4
-    memory_in_gbs = 24
+    ocpus         = 1
+    memory_in_gbs = 6
   }
 
   create_vnic_details {
@@ -47,9 +42,6 @@ resource "oci_core_instance" "face_api_instance" {
 
   metadata = {
     ssh_authorized_keys = var.ssh_public_key
-    user_data = base64encode(templatefile("${path.module}/cloud-init.yaml", {
-      ssh_public_key = var.ssh_public_key
-    }))
   }
 
   freeform_tags = {
@@ -59,24 +51,4 @@ resource "oci_core_instance" "face_api_instance" {
   }
 
   preserve_boot_volume = false
-}
-
-# 추가 블록 볼륨 (프리티어 200GB 활용)
-resource "oci_core_volume" "face_api_volume" {
-  compartment_id      = var.compartment_ocid
-  availability_domain = data.oci_identity_availability_domains.ads.availability_domains[0].name
-  display_name        = "face-api-storage"
-  size_in_gbs         = 50
-
-  freeform_tags = {
-    "Project" = "face-api"
-  }
-}
-
-# 볼륨 첨부
-resource "oci_core_volume_attachment" "face_api_volume_attachment" {
-  attachment_type = "iscsi"
-  instance_id     = oci_core_instance.face_api_instance.id
-  volume_id       = oci_core_volume.face_api_volume.id
-  display_name    = "face-api-volume-attachment"
 }

@@ -5,7 +5,7 @@
 ## 🎯 프리티어 활용 최대화 전략
 
 ### Oracle Cloud Free Tier 리소스
-- **Compute**: ARM A1 4vCPU + 24GB RAM (Always Free)
+- **Compute**: ARM A1 1vCPU + 6GB RAM (Always Free)
 - **Storage**: 200GB Block Volume (Always Free)  
 - **Network**: 10TB/월 아웃바운드 트래픽
 - **Load Balancer**: 1개 (Always Free)
@@ -220,8 +220,8 @@ resource "oci_core_instance" "face_api_instance" {
   shape               = "VM.Standard.A1.Flex"
 
   shape_config {
-    ocpus         = 4
-    memory_in_gbs = 24
+    ocpus         = 1
+    memory_in_gbs = 6
   }
 
   create_vnic_details {
