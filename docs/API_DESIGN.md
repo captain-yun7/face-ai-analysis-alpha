@@ -320,7 +320,11 @@ X-RateLimit-Reset: 1640995200
 
 ### 얼굴 비교 요청 예시
 ```bash
+# 로컬 개발 환경
 curl -X POST http://localhost:8000/compare-faces \
+
+# 운영 환경 (Oracle Cloud)  
+curl -X POST http://144.24.82.25:8000/compare-faces \
   -H "Content-Type: application/json" \
   -d '{
     "source_image": "data:image/jpeg;base64,/9j/4AAQSkZJRgABA...",

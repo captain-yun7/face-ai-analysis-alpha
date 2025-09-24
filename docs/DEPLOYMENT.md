@@ -13,7 +13,8 @@
 
 ### 인프라 아키텍처
 ```
-인터넷:443 → Oracle Load Balancer → ARM A1 인스턴스 (Nginx:443 → FastAPI:8000)
+인터넷:8000 → ARM A1 인스턴스 (Face API:8000 + systemd 관리)
+선택사항: 인터넷:443 → Oracle Load Balancer → ARM A1 인스턴스 (Nginx:443 → FastAPI:8000)
 ```
 
 ## 📂 프로젝트 구조
@@ -31,19 +32,16 @@ whos-your-papa-ai/
 │   ├── inventory/
 │   │   └── hosts.yml
 │   ├── playbooks/
-│   │   ├── 01-system-setup.yml
-│   │   ├── 02-docker-install.yml
-│   │   ├── 03-app-deploy.yml
-│   │   ├── 04-nginx-ssl.yml
-│   │   └── 05-monitoring.yml
+│   │   ├── site.yml               # 전체 배포 오케스트레이션
+│   │   ├── 01-system-setup.yml     # 시스템 패키지 + UFW 8000 포트
+│   │   ├── 02-ai-dependencies.yml  # InsightFace + OpenGL 설치
+│   │   ├── 03-app-deploy.yml       # Python venv 기반 배포
+│   │   ├── 04-nginx-ssl.yml        # 웹서버 + SSL (선택사항)
+│   │   ├── 05-monitoring.yml       # 모니터링 (선택사항)
+│   │   └── templates/
+│   │       └── face-api.service.j2 # systemd 서비스
 │   ├── roles/
 │   └── ansible.cfg
-├── docker/                 # 컨테이너 설정
-│   ├── Dockerfile.arm64    # ARM64 최적화
-│   ├── docker-compose.prod.yml
-│   └── nginx/
-│       ├── nginx.conf
-│       └── ssl/
 ├── scripts/                # 배포 스크립트
 │   ├── deploy.sh           # 원클릭 배포
 │   ├── setup-arm64.sh      # ARM64 환경 설정
@@ -362,218 +360,215 @@ sudo apt install -y ansible
         append: yes
 ```
 
-#### 3. 배포 실행
+#### 3. 완전 자동화 배포 실행 (한 번에!)
 ```bash
 cd ansible
-ansible-playbook -i inventory/hosts.yml playbooks/01-system-setup.yml
-ansible-playbook -i inventory/hosts.yml playbooks/02-docker-install.yml
+# 모든 단계를 한 번에 실행 (시스템 설정 → AI 의존성 → 앱 배포)
+ansible-playbook -i inventory/hosts.yml playbooks/site.yml
 ```
 
-### Phase 3: Docker 컨테이너화
-
-#### 1. ARM64 최적화 Dockerfile
-
-**docker/Dockerfile.arm64**
-```dockerfile
-# ARM64 최적화된 Multi-stage build
-FROM --platform=linux/arm64 python:3.11-slim as builder
-
-# 시스템 의존성 설치
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    cmake \
-    libopencv-dev \
-    libgl1-mesa-glx \
-    libglib2.0-0 \
-    libsm6 \
-    libxext6 \
-    libxrender-dev \
-    libgomp1 \
-    pkg-config \
-    && rm -rf /var/lib/apt/lists/*
-
-WORKDIR /app
-COPY requirements.txt .
-
-# ARM64 최적화된 패키지 설치
-RUN pip install --no-cache-dir \
-    --extra-index-url https://download.pytorch.org/whl/cpu \
-    -r requirements.txt
-
-# Runtime stage
-FROM --platform=linux/arm64 python:3.11-slim as runtime
-
-RUN apt-get update && apt-get install -y \
-    libgl1-mesa-glx \
-    libglib2.0-0 \
-    libsm6 \
-    libxext6 \
-    libxrender-dev \
-    libgomp1 \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
-
-WORKDIR /app
-
-# Python 패키지 복사
-COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
-COPY --from=builder /usr/local/bin /usr/local/bin
-
-# 애플리케이션 코드 복사
-COPY app/ ./app/
-COPY .env.example .env
-
-# 디렉토리 생성
-RUN mkdir -p logs
-
-# 비특권 사용자 생성
-RUN adduser --disabled-password --gecos '' appuser && \
-    chown -R appuser:appuser /app
-USER appuser
-
-# 헬스체크
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-  CMD curl -f http://localhost:8000/health || exit 1
-
-EXPOSE 8000
-
-# Gunicorn으로 실행
-CMD ["gunicorn", "app.main:app", "-w", "4", "-k", "uvicorn.workers.UvicornWorker", "-b", "0.0.0.0:8000"]
+**또는 단계별 실행:**
+```bash
+cd ansible
+ansible-playbook -i inventory/hosts.yml playbooks/01-system-setup.yml     # 시스템 + 방화벽
+ansible-playbook -i inventory/hosts.yml playbooks/02-ai-dependencies.yml  # InsightFace + OpenGL  
+ansible-playbook -i inventory/hosts.yml playbooks/03-app-deploy.yml       # Python venv 배포
+ansible-playbook -i inventory/hosts.yml playbooks/04-nginx-ssl.yml        # 웹서버 (선택)
 ```
 
-#### 2. 프로덕션 Docker Compose
+### Phase 3: AI 의존성 및 Python 환경 구성
 
-**docker/docker-compose.prod.yml**
+#### 1. AI 의존성 자동 설치 (02-ai-dependencies.yml)
+
+**핵심 구성요소:**
+- **OpenGL 시스템 라이브러리**: ARM64 환경에서 InsightFace 실행 필수
+- **Python 가상환경**: 시스템과 분리된 안전한 패키지 관리  
+- **InsightFace + ONNX Runtime**: 얼굴 분석 AI 모델
+- **자동 검증**: 설치 후 AI 모델 로딩 테스트
+
 ```yaml
-version: '3.8'
-
-services:
-  face-api:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile.arm64
-    container_name: face-api
-    restart: unless-stopped
-    environment:
-      - ENVIRONMENT=production
-      - LOG_LEVEL=INFO
-      - USE_GPU=false
-    volumes:
-      - ../logs:/app/logs
-      - /etc/localtime:/etc/localtime:ro
-    networks:
-      - face-api-network
-    deploy:
-      resources:
-        limits:
-          memory: 8G
-          cpus: '3.0'
-        reservations:
-          memory: 4G
-          cpus: '2.0'
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-
-  nginx:
-    image: nginx:alpine
-    container_name: nginx-proxy
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/ssl:/etc/nginx/ssl:ro
-      - /etc/letsencrypt:/etc/letsencrypt:ro
-    depends_on:
-      - face-api
-    networks:
-      - face-api-network
-
-networks:
-  face-api-network:
-    driver: bridge
+# 02-ai-dependencies.yml 주요 작업들
+- name: Install OpenGL and graphics system libraries
+  apt:
+    name:
+      - libgl1-mesa-glx      # OpenGL Mesa library  
+      - libglib2.0-0         # GLib library
+      - libsm6               # X11 Session Management
+      - libxext6             # X11 extensions
+      - libxrender-dev       # X Rendering Extension
+      - libgomp1             # GNU OpenMP runtime
+      - build-essential      # 컴파일 도구
+      
+- name: Create Python virtual environment
+  command: python3.10 -m venv /home/ubuntu/venv
+  
+- name: Install InsightFace and dependencies  
+  pip:
+    name:
+      - insightface>=0.7.3
+      - onnxruntime>=1.16.0
+      - opencv-python-headless>=4.8.0
+    virtualenv: /home/ubuntu/venv
 ```
 
-#### 3. Nginx 설정
+#### 2. Python 가상환경 배포 (03-app-deploy.yml)
 
-**docker/nginx/nginx.conf**
+**핵심 배포 과정:**
+- **애플리케이션 코드 배치**: `/home/ubuntu/whos-your-papa-ai/`
+- **환경 설정**: `.env` 파일 자동 생성
+- **systemd 서비스**: 자동 시작 및 관리
+- **검증**: Face API 모듈 임포트 테스트
+
+```yaml  
+# 03-app-deploy.yml 주요 작업들
+- name: Create environment file for Face API
+  copy:
+    dest: "{{ app_dir }}/.env"
+    content: |
+      ENVIRONMENT=production
+      LOG_LEVEL=INFO
+      USE_GPU=false
+      MODEL_NAME=buffalo_l
+      API_HOST=0.0.0.0
+      API_PORT=8000
+
+- name: Test Face API module import
+  command: "{{ venv_path }}/bin/python -c 'from app.main import app; print(\"✅ Face API imports successfully\")'"
+  
+- name: Create systemd service for Face API
+  template:
+    src: templates/face-api.service.j2
+    dest: /etc/systemd/system/face-api.service
+```
+
+#### 3. systemd 서비스 관리
+
+**face-api.service.j2 템플릿:**
+```ini
+[Unit]
+Description=Face API Application (InsightFace)
+After=network-online.target
+
+[Service]
+Type=exec
+WorkingDirectory=/home/ubuntu/whos-your-papa-ai
+ExecStart=/home/ubuntu/venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+User=ubuntu
+Restart=on-failure
+
+# Environment variables
+Environment=MODEL_NAME=buffalo_l
+Environment=USE_GPU=false
+Environment=LOG_LEVEL=INFO
+
+[Install]
+WantedBy=multi-user.target
+```
+
+**서비스 관리 명령어:**
+```bash
+# 서비스 시작
+sudo systemctl start face-api
+
+# 서비스 상태 확인  
+sudo systemctl status face-api
+
+# 서비스 재시작
+sudo systemctl restart face-api
+
+# 로그 확인
+journalctl -u face-api -f
+```
+
+### Phase 4: 배포 검증 및 테스트
+
+#### 1. AI 모델 로딩 확인
+```bash
+# 헬스체크 (AI 모델 상태 포함)
+curl http://144.24.82.25:8000/health
+
+# 예상 응답:
+{
+  "status": "healthy",
+  "model_loaded": true,  # ✅ 핵심!
+  "gpu_available": false,
+  "memory_usage": {"percent": 23.0},
+  "version": "1.0.0"
+}
+```
+
+#### 2. 얼굴 분석 API 테스트
+```bash
+# 얼굴 감지 테스트
+curl -X POST http://144.24.82.25:8000/detect-faces \
+  -H "Content-Type: application/json" \
+  -d @test_image.json
+
+#### 3. InsightFace 모델 상태 확인
+```bash
+# SSH로 서버 접속 후 확인
+ssh -i ~/.ssh/oracle_key ubuntu@144.24.82.25
+
+# 가상환경 활성화 스크립트 실행
+./activate_venv.sh
+
+# 출력 예시:
+# ✅ Face API virtual environment activated  
+# Python: Python 3.10.x
+# InsightFace: 0.7.3
+# ONNX Runtime: 1.22.1
+
+# AI 모델 디렉토리 확인
+ls -la ~/.insightface/models/buffalo_l/
+# buffalo_l 모델 파일들 확인 (약 280MB)
+```
+
+#### 4. 성능 및 리소스 모니터링
+```bash
+# 메모리 사용량 확인
+free -h
+
+# Face API 프로세스 확인  
+ps aux | grep python
+
+# CPU 사용률 확인
+htop
+```
+
+### Phase 5: 웹서버 및 SSL 설정 (선택사항)
+
+**04-nginx-ssl.yml 플레이북으로 설치:**
+```bash
+# Nginx 프록시 및 SSL 설정 (선택사항)
+ansible-playbook -i inventory/hosts.yml playbooks/04-nginx-ssl.yml
+```
+
+**Nginx 구성 예시:**
 ```nginx
-events {
-    worker_connections 1024;
-}
+server {
+    listen 443 ssl;
+    server_name your-domain.com;
 
-http {
-    upstream face_api {
-        server face-api:8000;
+    # SSL 설정
+    ssl_certificate /etc/letsencrypt/live/your-domain.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/your-domain.com/privkey.pem;
+
+    location / {
+        proxy_pass http://127.0.0.1:8000;  # Face API systemd 서비스
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
     }
 
-    # Rate limiting
-    limit_req_zone $binary_remote_addr zone=api:10m rate=10r/s;
-    
-    # 로그 포맷
-    log_format main '$remote_addr - $remote_user [$time_local] "$request" '
-                    '$status $body_bytes_sent "$http_referer" '
-                    '"$http_user_agent" "$http_x_forwarded_for"';
-
-    server {
-        listen 80;
-        server_name _;
-        
-        # HTTP to HTTPS redirect
-        return 301 https://$server_name$request_uri;
-    }
-
-    server {
-        listen 443 ssl;
-        server_name your-domain.com;
-
-        # SSL 설정
-        ssl_certificate /etc/letsencrypt/live/your-domain.com/fullchain.pem;
-        ssl_certificate_key /etc/letsencrypt/live/your-domain.com/privkey.pem;
-        ssl_protocols TLSv1.2 TLSv1.3;
-        ssl_ciphers HIGH:!aNULL:!MD5;
-        ssl_prefer_server_ciphers on;
-
-        # 보안 헤더
-        add_header X-Frame-Options DENY;
-        add_header X-Content-Type-Options nosniff;
-        add_header X-XSS-Protection "1; mode=block";
-        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains";
-
-        # 파일 업로드 크기 제한
-        client_max_body_size 10M;
-
-        location / {
-            # Rate limiting
-            limit_req zone=api burst=20 nodelay;
-            
-            proxy_pass http://face_api;
-            proxy_set_header Host $host;
-            proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto $scheme;
-            
-            # 타임아웃 설정
-            proxy_connect_timeout 60s;
-            proxy_send_timeout 60s;
-            proxy_read_timeout 60s;
-        }
-
-        location /health {
-            # 헬스체크는 rate limiting 제외
-            proxy_pass http://face_api;
-            access_log off;
-        }
+    location /health {
+        proxy_pass http://127.0.0.1:8000;
+        access_log off;
     }
 }
 ```
 
-### Phase 4: 자동화 스크립트
+### Phase 6: 자동화 스크립트
 
 #### 1. 원클릭 배포 스크립트
 
@@ -597,27 +592,26 @@ terraform init
 terraform apply -auto-approve
 cd ..
 
-# 2. Ansible 서버 설정
-echo "⚙️ 서버 설정 중..."
+# 2. Ansible 전체 배포 (시스템 + AI + 앱)
+echo "⚙️ 서버 및 애플리케이션 배포 중..."
 cd ansible
 ansible-playbook -i inventory/hosts.yml playbooks/site.yml
 cd ..
 
-# 3. Docker 이미지 빌드 및 배포
-echo "🐳 애플리케이션 배포 중..."
-cd docker
-docker-compose -f docker-compose.prod.yml up -d --build
-cd ..
-
-# 4. SSL 인증서 발급
-echo "🔒 SSL 인증서 설정 중..."
-./scripts/setup-ssl.sh
+# 3. 배포 검증
+echo "🔍 배포 검증 중..."
+PUBLIC_IP=$(cd terraform && terraform output -raw public_ip)
+curl -f http://$PUBLIC_IP:8000/health || {
+    echo "❌ Face API 헬스체크 실패"
+    exit 1
+}
 
 echo "✅ 배포 완료!"
-echo "🌐 https://your-domain.com 에서 확인하세요"
+echo "🌐 http://$PUBLIC_IP:8000 에서 확인하세요"
+echo "📊 헬스체크: http://$PUBLIC_IP:8000/health"
 ```
 
-#### 2. SSL 자동화 스크립트
+#### 2. SSL 자동화 스크립트 (선택사항)
 
 **scripts/setup-ssl.sh**
 ```bash
@@ -631,7 +625,7 @@ echo "🔒 SSL 인증서 설정 시작..."
 
 # Certbot 설치
 sudo apt update
-sudo apt install -y certbot
+sudo apt install -y certbot python3-certbot-nginx
 
 # Let's Encrypt 인증서 발급
 sudo certbot certonly --standalone \
@@ -644,12 +638,12 @@ sudo certbot certonly --standalone \
 echo "0 12 * * * /usr/bin/certbot renew --quiet" | sudo crontab -
 
 # Nginx 재시작
-docker-compose -f docker/docker-compose.prod.yml restart nginx
+sudo systemctl restart nginx
 
 echo "✅ SSL 설정 완료!"
 ```
 
-### Phase 5: CI/CD 파이프라인
+### Phase 7: CI/CD 파이프라인
 
 **.github/workflows/deploy.yml**
 ```yaml
@@ -677,42 +671,47 @@ jobs:
         region: ${{ secrets.OCI_REGION }}
         private-key: ${{ secrets.OCI_PRIVATE_KEY }}
 
-    - name: Build ARM64 image
-      run: |
-        docker buildx create --use
-        docker buildx build --platform linux/arm64 \
-          -f docker/Dockerfile.arm64 \
-          -t face-api:${{ github.sha }} .
-
     - name: Deploy to instance
       run: |
-        # SSH 배포 스크립트 실행
+        # SSH로 코드 업데이트 및 서비스 재시작
         ssh -i ~/.ssh/oracle_key ubuntu@${{ secrets.INSTANCE_IP }} \
-          "cd whos-your-papa-ai && git pull && ./scripts/update.sh"
+          "cd whos-your-papa-ai && \
+           git pull && \
+           sudo systemctl restart face-api && \
+           sleep 10 && \
+           curl -f http://localhost:8000/health"
 ```
 
 ## 📊 모니터링 및 로깅
 
-### 1. 시스템 모니터링
+### 1. systemd 서비스 모니터링
 ```bash
+# Face API 서비스 상태 확인
+sudo systemctl status face-api
+
+# 실시간 로그 확인
+journalctl -u face-api -f
+
 # 시스템 리소스 모니터링
 htop
 
-# Docker 컨테이너 상태
-docker stats
-
-# 로그 확인
-docker-compose -f docker/docker-compose.prod.yml logs -f
+# Face API 프로세스 확인
+ps aux | grep python | grep uvicorn
 ```
 
-### 2. 애플리케이션 로그
+### 2. 애플리케이션 로그 및 성능
 ```bash
-# 애플리케이션 로그
-tail -f logs/app.log
+# Face API 로그 (최근 100줄)
+journalctl -u face-api --lines=100
 
-# Nginx 로그
-sudo tail -f /var/log/nginx/access.log
-sudo tail -f /var/log/nginx/error.log
+# 메모리 사용량 확인
+free -h
+
+# 디스크 사용량 확인
+df -h
+
+# AI 모델 로딩 상태 확인
+curl http://localhost:8000/health
 ```
 
 ## 💰 비용 최적화
@@ -732,43 +731,62 @@ sudo tail -f /var/log/nginx/error.log
 # 시스템 업데이트
 sudo apt update && sudo apt upgrade -y
 
-# Docker 이미지 업데이트
-./scripts/update.sh
+# Face API 애플리케이션 업데이트
+cd /home/ubuntu/whos-your-papa-ai
+git pull
+sudo systemctl restart face-api
+
+# AI 모델 캐시 정리 (필요시)
+rm -rf ~/.insightface/models/*
 ```
 
 ### 2. 백업
 ```bash
 # 애플리케이션 백업
-tar -czf backup-$(date +%Y%m%d).tar.gz app/ logs/ docker/
+tar -czf backup-$(date +%Y%m%d).tar.gz \
+    /home/ubuntu/whos-your-papa-ai \
+    /home/ubuntu/venv \
+    ~/.insightface/models
 
-# 데이터베이스 백업 (필요시)
-# mysqldump 또는 pg_dump 사용
+# systemd 서비스 백업
+sudo cp /etc/systemd/system/face-api.service /home/ubuntu/
 ```
 
 ### 3. 롤백
 ```bash
-# 이전 버전으로 롤백
-./scripts/rollback.sh
+# Git을 통한 이전 버전으로 롤백
+cd /home/ubuntu/whos-your-papa-ai
+git log --oneline  # 커밋 히스토리 확인
+git reset --hard <이전-커밋-해시>
+sudo systemctl restart face-api
 ```
 
 ## 📋 배포 후 검증
 
 ### 체크리스트
 ```bash
-# 1. 서비스 상태 확인
-curl https://your-domain.com/health
+# 1. Face API 서비스 상태 확인
+curl http://PUBLIC_IP:8000/health
+# 예상 응답: {"status":"healthy","model_loaded":true}
 
-# 2. SSL 인증서 확인
-openssl s_client -connect your-domain.com:443 -servername your-domain.com
+# 2. systemd 서비스 상태 확인
+sudo systemctl status face-api
 
-# 3. 부하 테스트
-ab -n 100 -c 10 https://your-domain.com/health
+# 3. AI 모델 로딩 확인
+ls -la ~/.insightface/models/buffalo_l/
 
-# 4. 로그 확인
-docker-compose -f docker/docker-compose.prod.yml logs --tail=100
+# 4. 부하 테스트
+ab -n 100 -c 10 http://PUBLIC_IP:8000/health
 
-# 5. 리소스 사용량 확인
-docker stats
+# 5. 로그 확인
+journalctl -u face-api --lines=100
+
+# 6. 리소스 사용량 확인
+free -h && ps aux | grep python
+
+# 7. 포트 8000 접근 가능 확인
+sudo ufw status | grep 8000
+sudo netstat -tlnp | grep :8000
 ```
 
 ---

@@ -8,7 +8,6 @@ data "oci_core_images" "ubuntu_images" {
   compartment_id           = var.compartment_ocid
   operating_system         = "Canonical Ubuntu"
   operating_system_version = "22.04"
-  shape                    = "VM.Standard.A1.Flex"
   sort_by                  = "TIMECREATED"
   sort_order               = "DESC"
 
@@ -16,7 +15,7 @@ data "oci_core_images" "ubuntu_images" {
 
 # ARM A1 인스턴스
 resource "oci_core_instance" "face_api_instance" {
-  availability_domain = data.oci_identity_availability_domains.ads.availability_domains[0].name
+  availability_domain = try(data.oci_identity_availability_domains.ads.availability_domains[0].name, "IVaY:AP-CHUNCHEON-1-AD-1")
   compartment_id      = var.compartment_ocid
   display_name        = var.instance_display_name
   shape               = "VM.Standard.A1.Flex"
@@ -36,7 +35,7 @@ resource "oci_core_instance" "face_api_instance" {
 
   source_details {
     source_type             = "image"
-    source_id               = data.oci_core_images.ubuntu_images.images[0].id
+    source_id               = try(data.oci_core_images.ubuntu_images.images[0].id, "ocid1.image.oc1.ap-chuncheon-1.aaaaaaaa4pfzhxsrwmjb6nnixq5k5f6k2n2k75u3fzs6h4rpbrfpzf4t66vq")
     boot_volume_size_in_gbs = 50
   }
 

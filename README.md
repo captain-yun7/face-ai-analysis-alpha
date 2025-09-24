@@ -35,6 +35,9 @@ python -m app.main
 ```bash
 # 다른 터미널에서 실행
 curl http://localhost:8000/health  # {"model_loaded": true}
+
+# 또는 운영 서버에서 테스트
+curl http://144.24.82.25:8000/health  # {"model_loaded": true}
 ```
 
 ### 💡 사용 팁

@@ -1,34 +1,65 @@
 [Unit]
-Description=Face API Application
+Description=Face API Application (InsightFace)
 Documentation=https://github.com/YOUR_USERNAME/whos-your-papa-ai
-After=docker.service
-Requires=docker.service
+After=network-online.target
+Wants=network-online.target
 
 [Service]
-Type=oneshot
-RemainAfterExit=yes
+Type=exec
 WorkingDirectory={{ app_dir }}
-ExecStart=/usr/bin/docker-compose -f {{ app_dir }}/docker-compose.yml up -d
-ExecStop=/usr/bin/docker-compose -f {{ app_dir }}/docker-compose.yml down
-ExecReload=/usr/bin/docker-compose -f {{ app_dir }}/docker-compose.yml restart
-TimeoutStartSec=300
-TimeoutStopSec=300
+ExecStart=/home/{{ app_user }}/venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+ExecStop=/bin/kill -TERM $MAINPID
+ExecReload=/bin/kill -HUP $MAINPID
+
+# Process management
+PIDFile=/var/run/face-api/face-api.pid
+RuntimeDirectory=face-api
+RuntimeDirectoryMode=0755
+
+# Timing
+TimeoutStartSec=120
+TimeoutStopSec=30
+
+# User and permissions
 User={{ app_user }}
 Group={{ app_user }}
 
 # Restart policy
 Restart=on-failure
-RestartSec=30s
+RestartSec=10s
+StartLimitInterval=60s
+StartLimitBurst=3
 
-# Environment
-Environment=COMPOSE_PROJECT_NAME={{ project_name }}
+# Environment variables
+Environment=PYTHONPATH={{ app_dir }}
+Environment=MODEL_NAME=buffalo_l
+Environment=USE_GPU=false
+Environment=LOG_LEVEL={{ log_level }}
+Environment=ENVIRONMENT={{ environment }}
 
-# Security
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=face-api
+
+# Security hardening
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
 ProtectSystem=strict
-ReadWritePaths={{ app_dir }}
+ReadWritePaths={{ app_dir }} /tmp /home/{{ app_user }}/.insightface
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+RemoveIPC=true
+
+# Resource limits
+LimitNOFILE=65536
+MemoryMax=4G
 
 [Install]
 WantedBy=multi-user.target
