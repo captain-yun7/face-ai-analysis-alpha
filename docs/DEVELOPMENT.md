@@ -37,7 +37,7 @@ watchdog==3.0.0        # 파일 변경 감지
 ## 🏗️ 프로젝트 구조
 
 ```
-whos-your-papa-ai/
+face-ai-analysis-alpha/
 ├── app/                    # FastAPI 애플리케이션
 │   ├── api/               # API 라우터
 │   │   ├── routes/

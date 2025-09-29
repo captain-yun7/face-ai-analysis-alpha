@@ -228,7 +228,7 @@ pkill -f uvicorn
 source venv/bin/activate
 
 # 2. 올바른 디렉토리에서 실행
-cd /path/to/whos-your-papa-ai
+cd /path/to/face-ai-analysis-alpha
 uvicorn app.main:app --reload
 
 # 3. PYTHONPATH 설정

@@ -14,7 +14,7 @@
 ```bash
 # 1. 저장소 클론
 git clone <repository-url>
-cd whos-your-papa-ai
+cd face-ai-analysis-alpha
 
 # 2. 자동 설치 실행
 bash scripts/setup.sh

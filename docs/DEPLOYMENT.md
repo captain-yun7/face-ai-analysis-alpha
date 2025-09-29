@@ -20,7 +20,7 @@
 ## 📂 프로젝트 구조
 
 ```
-whos-your-papa-ai/
+face-ai-analysis-alpha/
 ├── terraform/              # 인프라 코드
 │   ├── provider.tf         # Oracle Cloud Provider
 │   ├── network.tf          # VCN, Subnet, Security
@@ -414,7 +414,7 @@ ansible-playbook -i inventory/hosts.yml playbooks/04-nginx-ssl.yml        # 웹�
 #### 2. Python 가상환경 배포 (03-app-deploy.yml)
 
 **핵심 배포 과정:**
-- **애플리케이션 코드 배치**: `/home/ubuntu/whos-your-papa-ai/`
+- **애플리케이션 코드 배치**: `/home/ubuntu/face-ai-analysis-alpha/`
 - **환경 설정**: `.env` 파일 자동 생성
 - **systemd 서비스**: 자동 시작 및 관리
 - **검증**: Face API 모듈 임포트 테스트
@@ -451,7 +451,7 @@ After=network-online.target
 
 [Service]
 Type=exec
-WorkingDirectory=/home/ubuntu/whos-your-papa-ai
+WorkingDirectory=/home/ubuntu/face-ai-analysis-alpha
 ExecStart=/home/ubuntu/venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 User=ubuntu
 Restart=on-failure
@@ -675,7 +675,7 @@ jobs:
       run: |
         # SSH로 코드 업데이트 및 서비스 재시작
         ssh -i ~/.ssh/oracle_key ubuntu@${{ secrets.INSTANCE_IP }} \
-          "cd whos-your-papa-ai && \
+          "cd face-ai-analysis-alpha && \
            git pull && \
            sudo systemctl restart face-api && \
            sleep 10 && \
@@ -732,7 +732,7 @@ curl http://localhost:8000/health
 sudo apt update && sudo apt upgrade -y
 
 # Face API 애플리케이션 업데이트
-cd /home/ubuntu/whos-your-papa-ai
+cd /home/ubuntu/face-ai-analysis-alpha
 git pull
 sudo systemctl restart face-api
 
@@ -744,7 +744,7 @@ rm -rf ~/.insightface/models/*
 ```bash
 # 애플리케이션 백업
 tar -czf backup-$(date +%Y%m%d).tar.gz \
-    /home/ubuntu/whos-your-papa-ai \
+    /home/ubuntu/face-ai-analysis-alpha \
     /home/ubuntu/venv \
     ~/.insightface/models
 
@@ -755,7 +755,7 @@ sudo cp /etc/systemd/system/face-api.service /home/ubuntu/
 ### 3. 롤백
 ```bash
 # Git을 통한 이전 버전으로 롤백
-cd /home/ubuntu/whos-your-papa-ai
+cd /home/ubuntu/face-ai-analysis-alpha
 git log --oneline  # 커밋 히스토리 확인
 git reset --hard <이전-커밋-해시>
 sudo systemctl restart face-api

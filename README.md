@@ -1,4 +1,4 @@
-# 🤖 Who's Your Papa - AI Backend
+# 🤖 Face AI Analysis Alpha - AI Backend
 
 > InsightFace 기반 고성능 얼굴 분석 백엔드 서비스
 
@@ -20,7 +20,7 @@
 
 ```bash
 # 1. 프로젝트 클론
-git clone <repository-url> && cd whos-your-papa-ai
+git clone <repository-url> && cd face-ai-analysis-alpha
 
 # 2. 자동 설치 (처음만)
 bash scripts/setup.sh

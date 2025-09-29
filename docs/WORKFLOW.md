@@ -23,14 +23,14 @@
 ### 환경 정보
 - **OS**: Linux 5.15.167.4-microsoft-standard-WSL2 (Ubuntu)
 - **Python**: 3.12 (기존 venv 환경)
-- **프로젝트**: whos-your-papa-ai (InsightFace 기반 얼굴 분석 백엔드)
+- **프로젝트**: face-ai-analysis-alpha (InsightFace 기반 얼굴 분석 백엔드)
 
 ### 수행한 작업
 
 #### 1단계: 현재 상태 분석
 ```bash
 # 프로젝트 구조 파악
-ls -la /home/korea-dev/whos-your-papa-ai/
+ls -la /home/korea-dev/face-ai-analysis-alpha/
 
 # 기존 문서 확인
 cat README.md
@@ -217,7 +217,7 @@ curl http://localhost:8000/health
 - 프로젝트 구조가 체계적이지 않음
 
 ### 환경 정보
-- **프로젝트**: whos-your-papa-ai
+- **프로젝트**: face-ai-analysis-alpha
 - **적용 표준**: CLAUDE.md 작업 표준
 
 ### 수행한 작업
@@ -251,7 +251,7 @@ mv test_api.py tests/
 
 ✅ **정리된 디렉토리 구조**:
 ```
-whos-your-papa-ai/
+face-ai-analysis-alpha/
 ├── CLAUDE.md              # AI 작업 표준
 ├── README.md              # 프로젝트 개요
 ├── docs/                  # 모든 기술 문서
@@ -689,7 +689,7 @@ EOF
 #### 3단계: 프론트엔드-백엔드 서버 실행
 ```bash
 # 백엔드 서버 (Python API)
-cd /home/korea-dev/whos-your-papa-ai
+cd /home/korea-dev/face-ai-analysis-alpha
 export PATH="$HOME/miniconda/bin:$PATH"
 source $HOME/miniconda/etc/profile.d/conda.sh
 conda activate insightface
@@ -823,7 +823,7 @@ similarity = float(np.dot(parent_embedding, child_embedding))
 - 모든 Python API 기능이 정상 연동됨
 - 하이브리드 시스템으로 AWS fallback 보장
 - 가족 유사도 임계값만 조정하면 완전한 서비스 가능
-- 파일 수정 위치: `/home/korea-dev/whos-your-papa-ai/app/models/face_analyzer.py`
+- 파일 수정 위치: `/home/korea-dev/face-ai-analysis-alpha/app/models/face_analyzer.py`
 
 ### 학습 사항
 - **기존 아키텍처 활용**: 완전히 새로 구현보다 기존 하이브리드 구조 활용이 효율적
@@ -915,7 +915,7 @@ pip install -r requirements.txt
 **README.md**: 빠른 시작 섹션 단순화
 ```bash
 # 4줄로 완료되는 설치
-git clone <repository-url> && cd whos-your-papa-ai
+git clone <repository-url> && cd face-ai-analysis-alpha
 bash scripts/setup.sh
 conda activate insightface
 python -m app.main
@@ -1298,7 +1298,7 @@ curl http://localhost:8000/health
 
 ### 환경 정보
 - **프론트엔드**: Next.js 15.5.3 (@whos-your-papa/)
-- **백엔드**: FastAPI + InsightFace (@whos-your-papa-ai/)
+- **백엔드**: FastAPI + InsightFace (@face-ai-analysis-alpha/)
 - **Python**: 3.11 (conda 환경)
 - **모델**: InsightFace buffalo_l with genderage.onnx
 
@@ -1504,7 +1504,7 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 ### 환경 정보
 - **백엔드**: FastAPI + InsightFace (Python 3.11, conda 환경)
 - **프론트엔드**: Next.js 15.5.3 (/whos-your-papa/)
-- **발생 위치**: `/home/k8s-admin/whos-your-papa-ai/app/models/face_analyzer.py`
+- **발생 위치**: `/home/k8s-admin/face-ai-analysis-alpha/app/models/face_analyzer.py`
 
 ### 문제 분석
 
@@ -1557,7 +1557,7 @@ max_similarity = max(max_similarity, similarity)  # 최대 유사도 업데이�
 ### 검증 방법
 ```bash
 # 1. 서버 재시작 후 테스트
-cd /home/k8s-admin/whos-your-papa-ai
+cd /home/k8s-admin/face-ai-analysis-alpha
 conda activate insightface
 python -m app.main
 
@@ -1780,8 +1780,8 @@ all:
   tasks:
     - name: Copy application files from local
       synchronize:
-        src: /home/k8s-admin/whos-your-papa-ai/
-        dest: /home/ubuntu/whos-your-papa-ai/
+        src: /home/k8s-admin/face-ai-analysis-alpha/
+        dest: /home/ubuntu/face-ai-analysis-alpha/
         rsync_opts:
           - "--exclude=venv"
           - "--exclude=terraform/"
@@ -1841,7 +1841,7 @@ terraform apply -auto-approve
 ```bash
 # 간단한 테스트 API 생성 및 실행
 ansible face_api_servers -i inventory/hosts.yml -m shell -a "
-cd /home/ubuntu/whos-your-papa-ai && 
+cd /home/ubuntu/face-ai-analysis-alpha && 
 python3 -m venv venv &&
 ./venv/bin/pip install fastapi uvicorn python-multipart"
 ```
