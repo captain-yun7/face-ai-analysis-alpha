@@ -713,29 +713,54 @@ class FaceAnalyzer:
         }
     
     async def estimate_gender_probability(self, image: str) -> Dict[str, Any]:
-        """성별 확률 추정 (경량 분류기 사용)"""
+        """성별 확률 추정 (얼굴 기하학 기반)"""
         
         if not self.is_loaded:
             return self._dummy_estimate_gender_probability(image)
         
         try:
-            # 먼저 임베딩 추출
-            embedding_result = await self.extract_embedding(image, face_id=0, normalize=True)
-            embedding = embedding_result["embedding"]
-            face_count = 1  # extract_embedding은 하나의 얼굴만 처리
+            # 이미지 디코딩
+            img = self._decode_base64_image(image)
             
-            # 경량 성별 분류기로 확률 계산
+            # 얼굴 감지
+            faces = self.app.get(img)
+            
+            if not faces:
+                raise ValueError("이미지에서 얼굴을 찾을 수 없습니다")
+            
+            # 첫 번째 얼굴의 landmarks 사용
+            face = faces[0]
+            
+            if not hasattr(face, 'landmark') or face.landmark is None:
+                raise ValueError("얼굴 landmarks 정보를 찾을 수 없습니다")
+            
+            # landmarks를 리스트로 변환
+            landmarks = face.landmark.tolist()
+            
+            # 기하학적 성별 분류기로 masculinity 점수 계산
             from .gender_classifier import gender_classifier
-            gender_probs = gender_classifier.predict_probability(embedding)
+            gender_analysis = gender_classifier.calculate_masculinity_from_landmarks(landmarks)
+            
+            # InsightFace의 기본 성별 분류도 함께 제공
+            insightface_gender = None
+            if hasattr(face, 'gender'):
+                insightface_gender = "male" if face.gender == 1 else "female"
             
             return {
                 "gender_probability": {
-                    "male_probability": gender_probs["male"],
-                    "female_probability": gender_probs["female"],
-                    "predicted_gender": "male" if gender_probs["male"] > gender_probs["female"] else "female",
-                    "gender_confidence": max(gender_probs["male"], gender_probs["female"])
+                    "male_probability": gender_analysis["masculinity_score"],
+                    "female_probability": gender_analysis["femininity_score"],
+                    "predicted_gender": "male" if gender_analysis["masculinity_score"] > 0.5 else "female",
+                    "gender_confidence": max(gender_analysis["masculinity_score"], gender_analysis["femininity_score"])
                 },
-                "face_count": face_count
+                "geometric_analysis": {
+                    "masculinity_score": gender_analysis["masculinity_score"],
+                    "femininity_score": gender_analysis["femininity_score"],
+                    "feature_breakdown": gender_analysis["features"],
+                    "method": "geometric_landmarks"
+                },
+                "insightface_classification": insightface_gender,
+                "face_count": len(faces)
             }
             
         except Exception as e:

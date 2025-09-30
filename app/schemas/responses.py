@@ -242,10 +242,18 @@ class AgeEstimationResponse(BaseResponse):
 
 class GenderProbability(BaseModel):
     """성별 확률 정보"""
-    male_probability: float = Field(..., ge=0.0, le=1.0, description="남성 확률")
-    female_probability: float = Field(..., ge=0.0, le=1.0, description="여성 확률")
+    male_probability: float = Field(..., ge=0.0, le=1.0, description="남성 확률 (masculinity score)")
+    female_probability: float = Field(..., ge=0.0, le=1.0, description="여성 확률 (femininity score)")
     predicted_gender: str = Field(..., description="예측된 성별 (male/female)")
     gender_confidence: float = Field(..., ge=0.0, le=1.0, description="성별 예측 신뢰도")
+
+
+class GeometricAnalysis(BaseModel):
+    """기하학적 성별 분석"""
+    masculinity_score: float = Field(..., ge=0.0, le=1.0, description="남성적 특징 점수")
+    femininity_score: float = Field(..., ge=0.0, le=1.0, description="여성적 특징 점수")
+    feature_breakdown: Dict[str, float] = Field(..., description="얼굴 특징별 점수")
+    method: str = Field(..., description="분석 방법")
 
 
 class GenderEstimationResponse(BaseResponse):
@@ -254,4 +262,6 @@ class GenderEstimationResponse(BaseResponse):
     
     class GenderData(BaseModel):
         gender_probability: GenderProbability = Field(..., description="성별 확률 정보")
+        geometric_analysis: GeometricAnalysis = Field(..., description="기하학적 얼굴 분석")
+        insightface_classification: Optional[str] = Field(None, description="InsightFace 이진 분류 결과")
         face_count: int = Field(..., ge=0, description="감지된 얼굴 수")
