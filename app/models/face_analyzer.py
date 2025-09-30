@@ -19,6 +19,14 @@ class FaceAnalyzer:
     def __init__(self, face_analysis_app):
         self.app = face_analysis_app
         self.is_loaded = face_analysis_app is not None
+        
+        # Enhanced Gender Analyzer 초기화
+        if self.is_loaded:
+            from .enhanced_gender_analyzer import EnhancedGenderProbabilityAnalyzer
+            self.enhanced_gender_analyzer = EnhancedGenderProbabilityAnalyzer(face_analysis_app)
+            logger.info("✅ Enhanced Gender Analyzer 초기화 완료")
+        else:
+            self.enhanced_gender_analyzer = None
     
     def _decode_base64_image(self, base64_string: str) -> np.ndarray:
         """Base64 문자열을 이미지로 디코딩"""
@@ -713,9 +721,9 @@ class FaceAnalyzer:
         }
     
     async def estimate_gender_probability(self, image: str) -> Dict[str, Any]:
-        """성별 확률 추정 (얼굴 기하학 기반)"""
+        """Enhanced Gender Analyzer를 활용한 정확한 성별 확률 추정"""
         
-        if not self.is_loaded:
+        if not self.is_loaded or not self.enhanced_gender_analyzer:
             return self._dummy_estimate_gender_probability(image)
         
         try:
@@ -728,38 +736,24 @@ class FaceAnalyzer:
             if not faces:
                 raise ValueError("이미지에서 얼굴을 찾을 수 없습니다")
             
-            # 첫 번째 얼굴의 landmarks 사용
+            # 첫 번째 얼굴 사용
             face = faces[0]
             
-            if not hasattr(face, 'landmark') or face.landmark is None:
-                raise ValueError("얼굴 landmarks 정보를 찾을 수 없습니다")
+            # Enhanced Gender Analyzer로 정확한 확률 추출
+            enhanced_result = self.enhanced_gender_analyzer.get_gender_probabilities(face, img)
             
-            # landmarks를 리스트로 변환
-            landmarks = face.landmark.tolist()
-            
-            # 기하학적 성별 분류기로 masculinity 점수 계산
-            from .gender_classifier import gender_classifier
-            gender_analysis = gender_classifier.calculate_masculinity_from_landmarks(landmarks)
-            
-            # InsightFace의 기본 성별 분류도 함께 제공
-            insightface_gender = None
-            if hasattr(face, 'gender'):
-                insightface_gender = "male" if face.gender == 1 else "female"
-            
+            # 간소화된 응답 구성
             return {
-                "gender_probability": {
-                    "male_probability": gender_analysis["masculinity_score"],
-                    "female_probability": gender_analysis["femininity_score"],
-                    "predicted_gender": "male" if gender_analysis["masculinity_score"] > 0.5 else "female",
-                    "gender_confidence": max(gender_analysis["masculinity_score"], gender_analysis["femininity_score"])
+                "gender_classification": {
+                    "predicted_gender": enhanced_result["predicted_gender"],
+                    "male_probability": enhanced_result["male_probability"],
+                    "female_probability": enhanced_result["female_probability"],
+                    "confidence_score": enhanced_result["confidence_score"]
                 },
-                "geometric_analysis": {
-                    "masculinity_score": gender_analysis["masculinity_score"],
-                    "femininity_score": gender_analysis["femininity_score"],
-                    "feature_breakdown": gender_analysis["features"],
-                    "method": "geometric_landmarks"
-                },
-                "insightface_classification": insightface_gender,
+                "estimated_age": enhanced_result["estimated_age"],
+                "male_score": enhanced_result["male_score"],
+                "masculinity_level": enhanced_result["masculinity_level"],
+                "raw_scores": enhanced_result["raw_scores"],
                 "face_count": len(faces)
             }
             
