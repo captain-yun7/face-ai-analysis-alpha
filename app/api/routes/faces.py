@@ -15,7 +15,9 @@ from ...schemas.requests import (
     EmbeddingExtractionRequest,
     BatchAnalysisRequest,
     FamilySimilarityRequest,
-    FindMostSimilarParentRequest
+    FindMostSimilarParentRequest,
+    AgeEstimationRequest,
+    GenderEstimationRequest
 )
 from ...schemas.responses import (
     FaceComparisonResponse,
@@ -24,6 +26,8 @@ from ...schemas.responses import (
     BatchAnalysisResponse,
     FamilySimilarityResponse,
     FindMostSimilarParentResponse,
+    AgeEstimationResponse,
+    GenderEstimationResponse,
     ResponseMetadata
 )
 from ...models.model_manager import model_manager
@@ -692,3 +696,161 @@ async def _group_similar_faces(embeddings: Dict[str, list], threshold: float) ->
             })
     
     return {"groups": groups}
+
+
+@router.post("/estimate-age", response_model=AgeEstimationResponse)
+async def estimate_age(request: AgeEstimationRequest):
+    """
+    이미지에서 나이를 추정합니다.
+    
+    - **image**: 분석할 이미지 (Base64 인코딩)
+    """
+    start_time = time.time()
+    
+    try:
+        async with model_manager.request_context("age_estimation"):
+            # 얼굴 분석기 가져오기
+            analyzer = model_manager.get_face_analyzer()
+            
+            # 나이 추정 수행
+            result = await analyzer.estimate_age(request.image)
+            
+            processing_time = time.time() - start_time
+            
+            # 응답 생성
+            response_data = AgeEstimationResponse(
+                success=True,
+                data=result,
+                metadata=create_response_metadata(processing_time)
+            )
+            
+            # 로깅
+            log_request(
+                method="POST",
+                url="/estimate-age",
+                status_code=200,
+                processing_time=processing_time
+            )
+            
+            return response_data
+            
+    except ValueError as e:
+        # 클라이언트 오류 (잘못된 입력)
+        processing_time = time.time() - start_time
+        error_response = {
+            "success": False,
+            "error": {
+                "code": "INVALID_INPUT",
+                "message": str(e),
+                "details": {}
+            }
+        }
+        
+        log_request(
+            method="POST",
+            url="/estimate-age",
+            status_code=400,
+            processing_time=processing_time
+        )
+        
+        raise HTTPException(status_code=400, detail=error_response)
+        
+    except Exception as e:
+        # 서버 오류
+        processing_time = time.time() - start_time
+        error_response = {
+            "success": False,
+            "error": {
+                "code": "PROCESSING_ERROR",
+                "message": "나이 추정 처리 중 오류가 발생했습니다",
+                "details": {"original_error": str(e)}
+            }
+        }
+        
+        log_request(
+            method="POST",
+            url="/estimate-age",
+            status_code=500,
+            processing_time=processing_time
+        )
+        
+        raise HTTPException(status_code=500, detail=error_response)
+
+
+@router.post("/estimate-gender", response_model=GenderEstimationResponse)
+async def estimate_gender(request: GenderEstimationRequest):
+    """
+    이미지에서 성별 확률을 추정합니다.
+    
+    - **image**: 분석할 이미지 (Base64 인코딩)
+    """
+    start_time = time.time()
+    
+    try:
+        async with model_manager.request_context("gender_estimation"):
+            # 얼굴 분석기 가져오기
+            analyzer = model_manager.get_face_analyzer()
+            
+            # 성별 확률 추정 수행
+            result = await analyzer.estimate_gender_probability(request.image)
+            
+            processing_time = time.time() - start_time
+            
+            # 응답 생성
+            response_data = GenderEstimationResponse(
+                success=True,
+                data=result,
+                metadata=create_response_metadata(processing_time)
+            )
+            
+            # 로깅
+            log_request(
+                method="POST",
+                url="/estimate-gender",
+                status_code=200,
+                processing_time=processing_time
+            )
+            
+            return response_data
+            
+    except ValueError as e:
+        # 클라이언트 오류 (잘못된 입력)
+        processing_time = time.time() - start_time
+        error_response = {
+            "success": False,
+            "error": {
+                "code": "INVALID_INPUT",
+                "message": str(e),
+                "details": {}
+            }
+        }
+        
+        log_request(
+            method="POST",
+            url="/estimate-gender",
+            status_code=400,
+            processing_time=processing_time
+        )
+        
+        raise HTTPException(status_code=400, detail=error_response)
+        
+    except Exception as e:
+        # 서버 오류
+        processing_time = time.time() - start_time
+        error_response = {
+            "success": False,
+            "error": {
+                "code": "PROCESSING_ERROR",
+                "message": "성별 확률 추정 처리 중 오류가 발생했습니다",
+                "details": {"original_error": str(e)}
+            }
+        }
+        
+        log_request(
+            method="POST",
+            url="/estimate-gender",
+            status_code=500,
+            processing_time=processing_time
+        )
+        
+        raise HTTPException(status_code=500, detail=error_response)

@@ -164,6 +164,26 @@ class FindMostSimilarParentRequest(BaseModel):
         return validated_images
 
 
+class AgeEstimationRequest(BaseModel):
+    """나이 추정 요청"""
+    image: str = Field(..., description="분석할 이미지 (Base64)")
+    
+    @validator("image")
+    def validate_image(cls, v):
+        """이미지 유효성 검사"""
+        return ImageData(image=v).image
+
+
+class GenderEstimationRequest(BaseModel):
+    """성별 확률 추정 요청"""
+    image: str = Field(..., description="분석할 이미지 (Base64)")
+    
+    @validator("image")
+    def validate_image(cls, v):
+        """이미지 유효성 검사"""
+        return ImageData(image=v).image
+
+
 class ConfigUpdateRequest(BaseModel):
     """설정 업데이트 요청 (관리자용)"""
     use_gpu: Optional[bool] = None

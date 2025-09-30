@@ -639,3 +639,122 @@ class FaceAnalyzer:
             } if use_family_analysis else None,
             "analysis_method": "family_analysis" if use_family_analysis else "basic_comparison"
         }
+    
+    async def estimate_age(self, image: str) -> Dict[str, Any]:
+        """나이 추정"""
+        
+        if not self.is_loaded:
+            return self._dummy_estimate_age(image)
+        
+        try:
+            # 이미지 디코딩
+            img = self._decode_base64_image(image)
+            
+            # 얼굴 감지
+            faces = self.app.get(img)
+            
+            if not faces:
+                raise ValueError("이미지에서 얼굴을 찾을 수 없습니다")
+            
+            # 첫 번째 얼굴의 나이 추정 (가장 큰 얼굴)
+            face = faces[0]
+            
+            if hasattr(face, 'age'):
+                age = int(face.age)
+                age_range = self._get_age_range(age)
+                confidence = float(face.det_score)  # 얼굴 감지 신뢰도를 나이 신뢰도로 사용
+                
+                return {
+                    "age": age,
+                    "age_range": age_range,
+                    "confidence": confidence,
+                    "face_count": len(faces)
+                }
+            else:
+                raise ValueError("모델에서 나이 정보를 제공하지 않습니다")
+                
+        except Exception as e:
+            logger.error(f"나이 추정 중 오류: {e}")
+            raise RuntimeError(f"나이 추정 실패: {e}")
+    
+    def _get_age_range(self, age: int) -> str:
+        """나이를 연령대로 분류"""
+        if age < 3:
+            return "유아 (0-2)"
+        elif age < 13:
+            return "아동 (3-12)"
+        elif age < 20:
+            return "청소년 (13-19)"
+        elif age < 30:
+            return "청년 (20-29)"
+        elif age < 40:
+            return "30대 (30-39)"
+        elif age < 50:
+            return "40대 (40-49)"
+        elif age < 60:
+            return "50대 (50-59)"
+        elif age < 70:
+            return "60대 (60-69)"
+        else:
+            return "노년 (70+)"
+    
+    def _dummy_estimate_age(self, image: str) -> Dict[str, Any]:
+        """더미 나이 추정 (InsightFace 없을 때)"""
+        import random
+        
+        age = random.randint(20, 50)
+        age_range = self._get_age_range(age)
+        
+        return {
+            "age": age,
+            "age_range": age_range,
+            "confidence": 0.85,
+            "face_count": 1
+        }
+    
+    async def estimate_gender_probability(self, image: str) -> Dict[str, Any]:
+        """성별 확률 추정 (경량 분류기 사용)"""
+        
+        if not self.is_loaded:
+            return self._dummy_estimate_gender_probability(image)
+        
+        try:
+            # 먼저 임베딩 추출
+            embedding_result = await self.extract_embedding(image, face_id=0, normalize=True)
+            embedding = embedding_result["embedding"]
+            face_count = 1  # extract_embedding은 하나의 얼굴만 처리
+            
+            # 경량 성별 분류기로 확률 계산
+            from .gender_classifier import gender_classifier
+            gender_probs = gender_classifier.predict_probability(embedding)
+            
+            return {
+                "gender_probability": {
+                    "male_probability": gender_probs["male"],
+                    "female_probability": gender_probs["female"],
+                    "predicted_gender": "male" if gender_probs["male"] > gender_probs["female"] else "female",
+                    "gender_confidence": max(gender_probs["male"], gender_probs["female"])
+                },
+                "face_count": face_count
+            }
+            
+        except Exception as e:
+            logger.error(f"성별 확률 추정 중 오류: {e}")
+            raise RuntimeError(f"성별 확률 추정 실패: {e}")
+    
+    def _dummy_estimate_gender_probability(self, image: str) -> Dict[str, Any]:
+        """더미 성별 확률 추정 (InsightFace 없을 때)"""
+        import random
+        
+        male_prob = random.uniform(0.2, 0.8)
+        female_prob = 1.0 - male_prob
+        
+        return {
+            "gender_probability": {
+                "male_probability": male_prob,
+                "female_probability": female_prob,
+                "predicted_gender": "male" if male_prob > female_prob else "female",
+                "gender_confidence": max(male_prob, female_prob)
+            },
+            "face_count": 1
+        }

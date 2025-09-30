@@ -227,3 +227,31 @@ class FindMostSimilarParentResponse(BaseResponse):
         best_match: Optional[ParentMatch] = Field(None, description="가장 닮은 부모")
         child_face_info: Optional[Dict[str, Any]] = Field(None, description="자녀 얼굴 정보")
         analysis_method: str = Field(..., description="분석 방법 (family_analysis 또는 basic_comparison)")
+
+
+class AgeEstimationResponse(BaseResponse):
+    """나이 추정 응답"""
+    data: Optional[Dict[str, Any]] = Field(None, description="나이 추정 결과")
+    
+    class AgeData(BaseModel):
+        age: int = Field(..., ge=0, le=120, description="추정 나이")
+        age_range: str = Field(..., description="연령대 분류")
+        confidence: float = Field(..., ge=0.0, le=1.0, description="추정 신뢰도")
+        face_count: int = Field(..., ge=0, description="감지된 얼굴 수")
+
+
+class GenderProbability(BaseModel):
+    """성별 확률 정보"""
+    male_probability: float = Field(..., ge=0.0, le=1.0, description="남성 확률")
+    female_probability: float = Field(..., ge=0.0, le=1.0, description="여성 확률")
+    predicted_gender: str = Field(..., description="예측된 성별 (male/female)")
+    gender_confidence: float = Field(..., ge=0.0, le=1.0, description="성별 예측 신뢰도")
+
+
+class GenderEstimationResponse(BaseResponse):
+    """성별 확률 추정 응답"""
+    data: Optional[Dict[str, Any]] = Field(None, description="성별 추정 결과")
+    
+    class GenderData(BaseModel):
+        gender_probability: GenderProbability = Field(..., description="성별 확률 정보")
+        face_count: int = Field(..., ge=0, description="감지된 얼굴 수")
