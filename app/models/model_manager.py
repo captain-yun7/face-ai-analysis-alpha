@@ -18,6 +18,7 @@ class ModelManager:
         self.models: Dict[str, Any] = {}
         self.model_loaded = False
         self.load_start_time = None
+        self._face_analyzer = None  # FaceAnalyzer 인스턴스 캐싱
         
     async def initialize_models(self):
         """모델 초기화"""
@@ -146,9 +147,12 @@ class ModelManager:
             logger.debug(f"완료: {operation_type} (소요시간: {processing_time:.3f}초)")
     
     def get_face_analyzer(self):
-        """얼굴 분석기 반환"""
-        from .face_analyzer import FaceAnalyzer
-        return FaceAnalyzer(self.models.get('face_analysis'))
+        """얼굴 분석기 반환 (싱글톤)"""
+        if self._face_analyzer is None:
+            from .face_analyzer import FaceAnalyzer
+            self._face_analyzer = FaceAnalyzer(self.models.get('face_analysis'))
+            logger.info(f"FaceAnalyzer 인스턴스 생성 (model_loaded: {self.model_loaded})")
+        return self._face_analyzer
 
 
 # 전역 모델 매니저 인스턴스
