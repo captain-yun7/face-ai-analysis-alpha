@@ -42,9 +42,9 @@ class ModelManager:
         try:
             import insightface
             
-            # InsightFace 앱 초기화
+            # InsightFace 앱 초기화 (landmarks 포함)
             app = insightface.app.FaceAnalysis(providers=['CPUExecutionProvider'])
-            app.prepare(ctx_id=-1)
+            app.prepare(ctx_id=-1, det_size=(640, 640))
             
             self.models['face_analysis'] = app
             logger.info("✅ InsightFace 모델 로딩 성공")

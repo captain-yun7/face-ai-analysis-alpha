@@ -210,6 +210,14 @@ test_*.png
 test_*.jpg
 test_*.jpeg
 
+# Development test files
+test_real_gender.py
+test_simple_gender.py
+test_with_real_images.py
+
+# Test image directories
+whos-your-papa-images/
+
 # Profiling results
 *.prof
 
